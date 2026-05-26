@@ -25,6 +25,39 @@ export const getStockNews = (ticker: string) => fetchAPI(`/api/market-data/news/
 export const getMarketStatus = () => fetchAPI(`/api/market-data/market-status`);
 
 // Analysis
+// Chat — ask questions about a completed analysis
+export const sendChatMessage = (data: {
+  message: string;
+  ticker: string;
+  trade_date: string;
+  signal: string;
+  reports: Record<string, string>;
+  debates: { bull: string; bear: string };
+  risk_debates: { aggressive: string; conservative: string; neutral: string };
+  stats?: Record<string, unknown> | null;
+  history?: { role: string; content: string }[];
+  duration?: number | null;
+}) => fetchAPI<{ reply: string }>(`/api/analysis/chat`, { method: "POST", body: JSON.stringify(data) });
+
+export const exportPdf = async (data: {
+  ticker: string;
+  trade_date: string;
+  signal?: string | null;
+  reports?: Record<string, string>;
+  debates?: { bull: string; bear: string };
+  risk_debates?: { aggressive: string; conservative: string; neutral: string };
+  stats?: Record<string, unknown> | null;
+  duration?: number | null;
+}): Promise<Blob> => {
+  const res = await fetch(`${API_BASE}/api/analysis/pdf-export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`PDF export failed: ${res.status}`);
+  return res.blob();
+};
+
 export const runAnalysis = (data: {
   ticker: string;
   trade_date: string;

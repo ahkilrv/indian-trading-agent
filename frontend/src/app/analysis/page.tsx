@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAnalysisStore } from "@/lib/store";
 import { DecisionCard } from "@/components/analysis/DecisionCard";
@@ -18,6 +18,8 @@ import { analysisHelp } from "@/lib/help-content";
 import { Loader2, Play, RotateCcw, History, Calculator } from "lucide-react";
 import { NextStep } from "@/components/NextStep";
 import { PositionSizeCalculator } from "@/components/PositionSizeCalculator";
+import { PdfExport } from "@/components/analysis/PdfExport";
+import { ChatBot } from "@/components/analysis/ChatBot";
 
 export default function AnalysisPage() {
   return (
@@ -31,8 +33,16 @@ function AnalysisPageInner() {
   const searchParams = useSearchParams();
   const defaultTicker = searchParams.get("ticker") || "";
 
-  // Global store — survives page navigation
+  // Global store — persists across page navigations and refreshes
   const analysis = useAnalysisStore();
+  const [hydrated, setHydrated] = useState(false);
+
+  // Wait for zustand persist to hydrate from localStorage before rendering
+  useEffect(() => {
+    // Small delay to let persist middleware rehydrate
+    const t = setTimeout(() => setHydrated(true), 50);
+    return () => clearTimeout(t);
+  }, []);
 
   // Local input state (pre-filled from URL or last analysis ticker)
   const [tickerInput, setTickerInput] = useState(defaultTicker || analysis.ticker || "");
@@ -60,6 +70,15 @@ function AnalysisPageInner() {
 
   const displayTicker = analysis.ticker || tickerInput;
 
+  // Show nothing until store has hydrated to avoid flash of "idle"
+  if (!hydrated) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[200px]">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -72,6 +91,18 @@ function AnalysisPageInner() {
             <Calculator className="h-3 w-3 mr-2" />
             Position Calc
           </Button>
+          {analysis.status === "completed" && (
+            <PdfExport
+              ticker={displayTicker}
+              tradeDate={analysis.tradeDate}
+              signal={analysis.signal}
+              reports={analysis.reports}
+              debates={analysis.debates}
+              riskDebates={analysis.riskDebates}
+              stats={analysis.stats}
+              duration={analysis.duration}
+            />
+          )}
           {analysis.status !== "idle" && (
             <Button variant="outline" size="sm" onClick={analysis.reset}>
               <RotateCcw className="h-3 w-3 mr-2" />
@@ -206,6 +237,20 @@ function AnalysisPageInner() {
       )}
 
       <HelpSection title="How to Use Analysis" items={analysisHelp} />
+
+      {/* Chat Bot — appears once the analysis is complete */}
+      {analysis.status === "completed" && analysis.signal && (
+        <ChatBot
+          ticker={displayTicker}
+          tradeDate={analysis.tradeDate}
+          signal={analysis.signal}
+          reports={analysis.reports}
+          debates={analysis.debates}
+          riskDebates={analysis.riskDebates}
+          stats={analysis.stats}
+          duration={analysis.duration}
+        />
+      )}
 
       <PositionSizeCalculator
         open={calcOpen}
