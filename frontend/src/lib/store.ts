@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { runAnalysis, connectAnalysisWS } from "@/lib/api";
 import type { WSEvent } from "@/lib/types";
 
@@ -42,23 +43,25 @@ interface AnalysisState {
   reset: () => void;
 }
 
-export const useAnalysisStore = create<AnalysisState>((set, get) => ({
-  taskId: null,
-  ticker: "",
-  tradeDate: "",
-  status: "idle",
-  reports: {},
-  debates: { bull: "", bear: "" },
-  riskDebates: { aggressive: "", conservative: "", neutral: "" },
-  signal: null,
-  error: null,
-  duration: null,
-  ws: null,
-  heartbeat: "",
-  lastUpdateAt: 0,
-  stats: null,
+export const useAnalysisStore = create<AnalysisState>()(
+  persist(
+    (set, get) => ({
+      taskId: null,
+      ticker: "",
+      tradeDate: "",
+      status: "idle",
+      reports: {},
+      debates: { bull: "", bear: "" },
+      riskDebates: { aggressive: "", conservative: "", neutral: "" },
+      signal: null,
+      error: null,
+      duration: null,
+      ws: null,
+      heartbeat: "",
+      lastUpdateAt: 0,
+      stats: null,
 
-  start: async (ticker: string, tradeDate: string, options: AnalysisOptions = {}) => {
+      start: async (ticker: string, tradeDate: string, options: AnalysisOptions = {}) => {
     // Close existing WS if any
     const existingWs = get().ws;
     if (existingWs) {
@@ -160,26 +163,42 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     }
   },
 
-  reset: () => {
-    const ws = get().ws;
-    if (ws) {
-      try { ws.close(); } catch {}
+      reset: () => {
+        const ws = get().ws;
+        if (ws) {
+          try { ws.close(); } catch {}
+        }
+        set({
+          taskId: null,
+          ticker: "",
+          tradeDate: "",
+          status: "idle",
+          reports: {},
+          debates: { bull: "", bear: "" },
+          riskDebates: { aggressive: "", conservative: "", neutral: "" },
+          signal: null,
+          error: null,
+          duration: null,
+          ws: null,
+          heartbeat: "",
+          lastUpdateAt: 0,
+          stats: null,
+        });
+      },
+    }),
+    {
+      name: "analysis-store",
+      partialize: (state) => ({
+        ticker: state.ticker,
+        tradeDate: state.tradeDate,
+        status: state.status,
+        reports: state.reports,
+        debates: state.debates,
+        riskDebates: state.riskDebates,
+        signal: state.signal,
+        duration: state.duration,
+        stats: state.stats,
+      }),
     }
-    set({
-      taskId: null,
-      ticker: "",
-      tradeDate: "",
-      status: "idle",
-      reports: {},
-      debates: { bull: "", bear: "" },
-      riskDebates: { aggressive: "", conservative: "", neutral: "" },
-      signal: null,
-      error: null,
-      duration: null,
-      ws: null,
-      heartbeat: "",
-      lastUpdateAt: 0,
-      stats: null,
-    });
-  },
-}));
+  )
+);

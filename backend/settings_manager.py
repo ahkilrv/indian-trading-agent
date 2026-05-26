@@ -44,6 +44,27 @@ PROVIDERS_INFO = {
         "models_deep": ["gemini-3.1-pro", "gemini-3-pro"],
         "models_quick": ["gemini-2.5-flash", "gemini-2-flash"],
     },
+    "deepseek": {
+        "name": "DeepSeek",
+        "key_format": "sk-...",
+        "signup_url": "https://platform.deepseek.com/api_keys",
+        "models_deep": ["deepseek-reasoner", "deepseek-chat"],
+        "models_quick": ["deepseek-chat"],
+    },
+    "xai": {
+        "name": "xAI Grok",
+        "key_format": "xai-...",
+        "signup_url": "https://console.x.ai/",
+        "models_deep": ["grok-4-1-fast-reasoning", "grok-4-0709"],
+        "models_quick": ["grok-4-1-fast-non-reasoning", "grok-4-fast-non-reasoning"],
+    },
+    "qwen": {
+        "name": "Qwen / Alibaba",
+        "key_format": "sk-...",
+        "signup_url": "https://bailian.console.aliyun.com/",
+        "models_deep": ["qwen3.6-plus", "qwen3.5-plus"],
+        "models_quick": ["qwen3.5-flash"],
+    },
 }
 
 
@@ -102,7 +123,7 @@ def test_api_key(provider: str, key: str | None = None) -> dict:
     """Test if an API key works. Makes a minimal call to verify.
 
     Args:
-        provider: anthropic | openai | google
+        provider: anthropic | openai | google | deepseek
         key: optional — if provided, tests this key instead of saved one
     """
     # Use provided key or fall back to saved/env
@@ -143,6 +164,16 @@ def test_api_key(provider: str, key: str | None = None) -> dict:
                 contents="Say hi",
             )
             return {"ok": True, "model": "gemini-2.5-flash", "message": "API key works!"}
+
+        elif provider == "deepseek":
+            from openai import OpenAI
+            client = OpenAI(api_key=key, base_url="https://api.deepseek.com/v1")
+            resp = client.chat.completions.create(
+                model="deepseek-chat",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Say hi"}],
+            )
+            return {"ok": True, "model": "deepseek-chat", "message": "API key works!"}
 
         else:
             return {"ok": False, "error": f"Testing not implemented for {provider}"}

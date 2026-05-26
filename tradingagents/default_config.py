@@ -7,9 +7,9 @@ DEFAULT_CONFIG = {
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
     # LLM settings
-    "llm_provider": "anthropic",
-    "deep_think_llm": "claude-sonnet-4-20250514",
-    "quick_think_llm": "claude-haiku-4-5-20251001",
+    "llm_provider": "deepseek",
+    "deep_think_llm": "deepseek-v4-pro",
+    "quick_think_llm": "deepseek-reasoner",
     # Provider-specific thinking configuration
     "google_thinking_level": None,
     "openai_reasoning_effort": None,

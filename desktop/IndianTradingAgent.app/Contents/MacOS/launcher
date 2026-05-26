@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Launcher for Indian Trading Agent desktop app
+# Opens a Terminal window, runs start.sh, and keeps it open
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
+START_SCRIPT="${ROOT_DIR}/start.sh"
+
+if [[ ! -f "$START_SCRIPT" ]]; then
+  osascript -e 'display dialog "start.sh not found at '"${ROOT_DIR}"'/start.sh\n\nPlease ensure the Indian Trading Agent project is at the correct location." buttons {"OK"} default button "OK" with icon stop with title "Indian Trading Agent"'
+  exit 1
+fi
+
+# Launch in a new Terminal window
+osascript -e "
+tell application \"Terminal\"
+  activate
+  do script \"cd '${ROOT_DIR}' && bash start.sh; echo; echo 'Press Return to close this window.'; read\"
+end tell
+" > /dev/null 2>&1
