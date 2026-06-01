@@ -14,6 +14,7 @@ export default function ChartsPage() {
   const [ticker, setTicker] = useState("RELIANCE");
   const [period, setPeriod] = useState("3mo");
   const [data, setData] = useState<any[]>([]);
+  const [dataSource, setDataSource] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<any>(null);
@@ -26,8 +27,10 @@ export default function ChartsPage() {
     try {
       const result: any = await getChartData(t.trim(), period);
       setData(result.data || []);
+      setDataSource(result.data_source || "");
     } catch {
       setData([]);
+      setDataSource("");
     } finally {
       setLoading(false);
     }
@@ -170,6 +173,12 @@ export default function ChartsPage() {
             </Button>
           ))}
         </div>
+        {dataSource && (
+          <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+            Data: {dataSource}
+          </span>
+        )}
       </div>
 
       <Card>

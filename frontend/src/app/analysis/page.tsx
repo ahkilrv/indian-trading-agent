@@ -9,6 +9,7 @@ import { ReportPanel } from "@/components/analysis/ReportPanel";
 import { DebateView } from "@/components/analysis/DebateView";
 import { AnalysisOptions } from "@/components/analysis/AnalysisOptions";
 import { StatsCard } from "@/components/analysis/StatsCard";
+import { AnalysisInsights } from "@/components/analysis/AnalysisInsights";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,7 +48,7 @@ function AnalysisPageInner() {
   // Local input state (pre-filled from URL or last analysis ticker)
   const [tickerInput, setTickerInput] = useState(defaultTicker || analysis.ticker || "");
   const [tradeDateInput, setTradeDateInput] = useState(
-    analysis.tradeDate || new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+    new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
   );
 
   // Analysis options
@@ -199,6 +200,11 @@ function AnalysisPageInner() {
       {/* Stats Card */}
       {analysis.stats && analysis.status === "completed" && (
         <StatsCard stats={analysis.stats} duration={analysis.duration} />
+      )}
+
+      {/* Structured Insights — human-readable explanations of each agent's findings */}
+      {analysis.status === "completed" && Object.keys(analysis.structuredPayloads).length > 0 && (
+        <AnalysisInsights payloads={analysis.structuredPayloads} />
       )}
 
       {/* Main Content */}

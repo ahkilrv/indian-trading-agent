@@ -18,6 +18,24 @@ from tradingagents.agents.utils.news_data_tools import (
     get_insider_transactions,
     get_global_news
 )
+from tradingagents.agents.utils.social_sentiment_tools import (
+    get_trends,
+)
+from tradingagents.agents.utils.rss_news_tools import (
+    get_ticker_news,
+)
+from tradingagents.agents.utils.serp_news_tools import (
+    get_serp_news,
+)
+from tradingagents.agents.utils.serp_youtube_tools import (
+    get_youtube_sentiment,
+)
+from tradingagents.agents.utils.serp_finance_tools import (
+    get_google_finance,
+)
+from tradingagents.agents.utils.serp_forums_tools import (
+    get_forums_sentiment,
+)
 
 
 def get_language_instruction() -> str:

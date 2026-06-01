@@ -38,6 +38,7 @@ interface AnalysisState {
   heartbeat: string;
   lastUpdateAt: number;
   stats: AnalysisStats | null;
+  structuredPayloads: Record<string, any>;
 
   start: (ticker: string, tradeDate: string, options?: AnalysisOptions) => Promise<void>;
   reset: () => void;
@@ -60,6 +61,7 @@ export const useAnalysisStore = create<AnalysisState>()(
       heartbeat: "",
       lastUpdateAt: 0,
       stats: null,
+      structuredPayloads: {},
 
       start: async (ticker: string, tradeDate: string, options: AnalysisOptions = {}) => {
     // Close existing WS if any
@@ -83,6 +85,7 @@ export const useAnalysisStore = create<AnalysisState>()(
       heartbeat: "Initializing pipeline...",
       lastUpdateAt: Date.now(),
       stats: null,
+      structuredPayloads: {},
     });
 
     try {
@@ -128,6 +131,14 @@ export const useAnalysisStore = create<AnalysisState>()(
               },
               lastUpdateAt: Date.now(),
             });
+            break;
+          case "structured_payload":
+            if (event.agent && event.data) {
+              set({
+                structuredPayloads: { ...state.structuredPayloads, [event.agent]: event.data },
+                lastUpdateAt: Date.now(),
+              });
+            }
             break;
           case "complete":
             ws.close();
@@ -183,6 +194,7 @@ export const useAnalysisStore = create<AnalysisState>()(
           heartbeat: "",
           lastUpdateAt: 0,
           stats: null,
+          structuredPayloads: {},
         });
       },
     }),
@@ -198,6 +210,7 @@ export const useAnalysisStore = create<AnalysisState>()(
         signal: state.signal,
         duration: state.duration,
         stats: state.stats,
+        structuredPayloads: state.structuredPayloads,
       }),
     }
   )

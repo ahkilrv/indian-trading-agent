@@ -254,6 +254,13 @@ class TradingAgentsGraph:
             },
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],
+            # Structured JSON payloads from upgraded pipeline nodes
+            "bull_researcher_payload": final_state.get("bull_researcher_payload"),
+            "bear_researcher_payload": final_state.get("bear_researcher_payload"),
+            "aggressive_debater_payload": final_state.get("aggressive_debater_payload"),
+            "conservative_debater_payload": final_state.get("conservative_debater_payload"),
+            "neutral_debater_payload": final_state.get("neutral_debater_payload"),
+            "portfolio_manager_payload": final_state.get("portfolio_manager_payload"),
         }
 
         # Save to file

@@ -89,6 +89,40 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
                         "content": val,
                     }))
 
+            # Detect structured payload updates (Pydantic-validated JSON from each agent)
+            structured_payloads = [
+                ("market_analysis",          "market"),
+                ("fundamentals_analysis",    "fundamentals"),
+                ("news_analysis",            "news"),
+                ("social_sentiment",         "social"),
+                ("bull_researcher_payload",  "bull"),
+                ("bear_researcher_payload",  "bear"),
+                ("research_manager_verdict", "research_manager"),
+                ("trader_execution_plan",    "trader"),
+                ("aggressive_debater_payload", "risk_aggressive"),
+                ("conservative_debater_payload", "risk_conservative"),
+                ("neutral_debater_payload",   "risk_neutral"),
+                ("portfolio_manager_payload", "portfolio_manager"),
+            ]
+            for payload_field, agent in structured_payloads:
+                val = chunk.get(payload_field)
+                if val and val != prev_reports.get(payload_field):
+                    prev_reports[payload_field] = val
+                    # Convert Pydantic model to dict for JSON serialization
+                    if hasattr(val, "model_dump"):
+                        payload_dict = val.model_dump()
+                    elif hasattr(val, "dict"):
+                        payload_dict = val.dict()
+                    else:
+                        payload_dict = val
+                    print(f"[Analysis {task_id}] Structured payload: {payload_field}", flush=True)
+                    loop.run_until_complete(manager.send_event(task_id, {
+                        "type": "structured_payload",
+                        "agent": agent,
+                        "field": payload_field,
+                        "data": payload_dict,
+                    }))
+
             # Detect debate updates
             invest_state = chunk.get("investment_debate_state")
             if invest_state:
@@ -165,6 +199,20 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
             "risk_neutral_history": risk_state.get("neutral_history"),
             "stats": stats_summary,
             "duration_seconds": round(duration, 1),
+            # Structured Pydantic outputs
+            "social_sentiment": final_state.get("social_sentiment"),
+            "market_analysis": final_state.get("market_analysis"),
+            "fundamentals_analysis": final_state.get("fundamentals_analysis"),
+            "news_analysis": final_state.get("news_analysis"),
+            "social_sentiment": final_state.get("social_sentiment"),
+            "bull_researcher_payload": final_state.get("bull_researcher_payload"),
+            "bear_researcher_payload": final_state.get("bear_researcher_payload"),
+            "research_manager_verdict": final_state.get("research_manager_verdict"),
+            "trader_execution_plan": final_state.get("trader_execution_plan"),
+            "aggressive_debater_payload": final_state.get("aggressive_debater_payload"),
+            "conservative_debater_payload": final_state.get("conservative_debater_payload"),
+            "neutral_debater_payload": final_state.get("neutral_debater_payload"),
+            "portfolio_manager_payload": final_state.get("portfolio_manager_payload"),
         }
 
         save_analysis(task_id, result_data)

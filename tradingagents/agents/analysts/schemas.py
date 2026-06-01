@@ -17,6 +17,84 @@ from pydantic import BaseModel, Field, ValidationError
 logger = logging.getLogger(__name__)
 
 
+SOCIAL_SENTIMENT_SCHEMA_PROMPT = """\
+After your analysis, you MUST output a valid JSON object with exactly these keys:
+{
+  "ticker": "string — the stock ticker (e.g. RELIANCE.NS)",
+  "aggregate_sentiment": "number between -1.0 and 1.0 — overall sentiment from social data",
+  "is_high_engagement": "boolean — true if social post volume spiked >2x vs 24h average",
+  "sentiment_divergence": "boolean — true if social sentiment contradicts the current price trend",
+  "divergence_rationale": "string — one sentence explaining crowd sentiment vs technical reality",
+  "social_verdict": "BULLISH | BEARISH | NEUTRAL — your mathematically derived verdict"
+}
+No other text. No markdown, no explanation, no conversational filler."""
+
+RESEARCH_MANAGER_SCHEMA_PROMPT = """\
+You MUST output ONLY a valid JSON object with exactly these keys:
+{
+  "recommendation": "BUY | SELL | HOLD",
+  "rationale": "string — 1-2 sentence verdict grounded in the Bull/Bear debate",
+  "entry_zone": "string — price level or range for entry",
+  "stop_loss": "number — mandatory stop-loss price",
+  "target_1": "number — first profit target",
+  "target_2": "number — extended profit target",
+  "time_horizon": "INTRADAY | 2_3_DAYS | 1_WEEK | 2_WEEKS",
+  "bull_arguments_accepted": ["string bullet 1", "string bullet 2"],
+  "bear_arguments_accepted": ["string bullet 1"],
+  "key_risk": "string — the single most dangerous risk flagged"
+}
+No other text. No markdown, no explanation, no conversational filler."""
+
+TRADER_SCHEMA_PROMPT = """\
+You MUST output ONLY a valid JSON object with exactly these keys:
+{
+  "action": "BUY | SELL | HOLD | SHORT",
+  "entry_price": "number — specific price or 0 for market entry",
+  "stop_loss": "number — mandatory stop-loss, use ATR-based distance",
+  "target_1": "number — conservative profit target",
+  "target_2": "number — extended target if momentum sustains",
+  "position_size_pct": "number between 0.0 and 1.0 — fraction of capital",
+  "time_horizon": "INTRADAY | 2_3_DAYS | 1_WEEK | 2_WEEKS",
+  "risk_reward_ratio": "number — computed from entry/SL/target_1",
+  "order_type": "MARKET | LIMIT | SL-LIMIT",
+  "execution_notes": "string — specific execution instructions"
+}
+No other text. No markdown, no explanation, no conversational filler."""
+
+DEBATER_SCHEMA_PROMPT = """\
+You MUST output ONLY a valid JSON object with exactly these keys:
+{
+  "ticker": "string — the stock ticker (e.g. RELIANCE.NS)",
+  "debater_role": "AGGRESSIVE | CONSERVATIVE | NEUTRAL",
+  "bull_target_probability": "number between 0.0 and 1.0 — probability Bull target price will be reached in the trade horizon",
+  "bear_target_probability": "number between 0.0 and 1.0 — probability Bear target price will be reached in the trade horizon",
+  "risk_reward_ratio": "number — the calculated risk-reward ratio (reward / risk)",
+  "verdict": "BULLISH | BEARISH | NEUTRAL",
+  "position_size_recommendation_pct": "number between 0.0 and 1.0 — fraction of max capital to allocate to this trade",
+  "key_rationale": "string — 1-sentence explanation of the verdict based on comparing the two payloads",
+  "critical_risk_flagged": "string — the single most dangerous risk that the trade must survive"
+}
+No other text. No markdown, no explanation, no conversational filler."""
+
+MANAGER_SCHEMA_PROMPT = """\
+You MUST output ONLY a valid JSON object with exactly these keys:
+{
+  "ticker": "string — the stock ticker (e.g. RELIANCE.NS)",
+  "rating": "STRONG_BUY | BUY | HOLD | SELL | SHORT",
+  "entry_price": "number — exact price level or 0 for market entry",
+  "stop_loss": "number — mandatory, specific price level",
+  "target_1": "number — first profit-taking level",
+  "target_2": "number — extended target if momentum sustains",
+  "position_size_pct": "number between 0.0 and 1.0 — fraction of capital to deploy (0.0 = rejected trade)",
+  "time_horizon": "INTRADAY | 2_3_DAYS | 1_WEEK | 2_WEEKS",
+  "risk_reward_ratio": "number — computed from entry/SL/target_1",
+  "confidence_score": "number between 0.0 and 1.0",
+  "executive_summary": "string — concise action plan with key risk levels (max 2 sentences)",
+  "investment_thesis": "string — detailed reasoning from downstream payloads",
+  "rejection_reason": "string — REQUIRED if rating is HOLD or SELL; otherwise empty string"
+}
+No other text. No markdown, no explanation, no conversational filler."""
+
 RESEARCHER_SCHEMA_PROMPT = """\
 You MUST output ONLY a valid JSON object with exactly these keys:
 {
@@ -115,6 +193,7 @@ def format_analysis_for_prompt(
     market_analysis: Optional[dict[str, Any]] = None,
     fundamentals_analysis: Optional[dict[str, Any]] = None,
     news_analysis: Optional[dict[str, Any]] = None,
+    social_sentiment: Optional[dict[str, Any]] = None,
 ) -> str:
     """Render structured analysis dicts as a concise text block for LLM prompts.
 
@@ -123,12 +202,23 @@ def format_analysis_for_prompt(
     blocks: list[str] = []
 
     if market_analysis:
+        support_vals = market_analysis.get("key_support", [])
+        resistance_vals = market_analysis.get("key_resistance", [])
+        if isinstance(support_vals, list):
+            sup_str = ", ".join(f"S{i+1}:₹{v}" for i, v in enumerate(support_vals[:3]))
+        else:
+            sup_str = str(support_vals)
+        if isinstance(resistance_vals, list):
+            res_str = ", ".join(f"R{i+1}:₹{v}" for i, v in enumerate(resistance_vals[:3]))
+        else:
+            res_str = str(resistance_vals)
+
         blocks.append(
             "Structured Market Analysis:\n"
             f"  Ticker: {market_analysis.get('ticker', 'N/A')}\n"
             f"  Trend: {market_analysis.get('current_trend', 'N/A')}\n"
-            f"  Support: {market_analysis.get('key_support', 'N/A')}\n"
-            f"  Resistance: {market_analysis.get('key_resistance', 'N/A')}\n"
+            f"  Support: {sup_str}\n"
+            f"  Resistance: {res_str}\n"
             f"  Momentum: {market_analysis.get('momentum_state', 'N/A')}\n"
             f"  Institutional Flow: {market_analysis.get('institutional_flow_bias', 'N/A')}\n"
             f"  Technical Verdict: {market_analysis.get('technical_verdict', 'N/A')}"
@@ -156,7 +246,73 @@ def format_analysis_for_prompt(
             f"  News Verdict: {news_analysis.get('news_verdict', 'N/A')}"
         )
 
+    if social_sentiment:
+        blocks.append(
+            "Structured Social Sentiment Analysis:\n"
+            f"  Ticker: {social_sentiment.get('ticker', 'N/A')}\n"
+            f"  Aggregate Sentiment (-1 to +1): {social_sentiment.get('aggregate_sentiment', 'N/A')}\n"
+            f"  High Engagement: {social_sentiment.get('is_high_engagement', 'N/A')}\n"
+            f"  Sentiment Divergence: {social_sentiment.get('sentiment_divergence', 'N/A')}\n"
+            f"  Divergence Rationale: {social_sentiment.get('divergence_rationale', 'N/A')}\n"
+            f"  Social Verdict: {social_sentiment.get('social_verdict', 'N/A')}"
+        )
+
     return "\n\n".join(blocks)
+
+
+class SocialSentimentPayload(BaseModel):
+    """Structured sentiment-divergence report from social media analysis."""
+
+    ticker: str
+    aggregate_sentiment: float = Field(ge=-1.0, le=1.0)
+    is_high_engagement: bool
+    sentiment_divergence: bool
+    divergence_rationale: str
+    social_verdict: Literal["BULLISH", "BEARISH", "NEUTRAL"]
+
+
+class ResearchManagerVerdict(BaseModel):
+    """Structured output from the Research Manager who judges Bull vs Bear debate."""
+
+    recommendation: Literal["BUY", "SELL", "HOLD"] = Field(
+        ..., description="Definitive trade direction"
+    )
+    rationale: str = Field(
+        ..., max_length=300, description="1-2 sentence verdict grounded in debate"
+    )
+    entry_zone: str = Field(..., description="Specific price level or range for entry")
+    stop_loss: float = Field(..., description="Mandatory stop-loss price")
+    target_1: float = Field(..., description="First profit target")
+    target_2: float = Field(..., description="Extended profit target")
+    time_horizon: Literal["INTRADAY", "2_3_DAYS", "1_WEEK", "2_WEEKS"] = Field(
+        ..., description="Expected holding period"
+    )
+    bull_arguments_accepted: list[str] = Field(
+        ..., min_length=1, description="Bull arguments that won the debate"
+    )
+    bear_arguments_accepted: list[str] = Field(
+        default_factory=list, description="Bear arguments acknowledged as valid risks"
+    )
+    key_risk: str = Field(..., description="Single most dangerous risk flagged")
+
+
+class TraderExecutionPlan(BaseModel):
+    """Structured execution plan from the Trader agent."""
+
+    action: Literal["BUY", "SELL", "HOLD", "SHORT"] = Field(
+        ..., description="Trade action"
+    )
+    entry_price: float = Field(
+        ..., description="Specific entry price or 0 for market entry"
+    )
+    stop_loss: float = Field(..., description="Mandatory stop-loss, ATR-based distance")
+    target_1: float = Field(..., description="Conservative profit target")
+    target_2: float = Field(..., description="Extended target")
+    position_size_pct: float = Field(..., ge=0.0, le=1.0)
+    time_horizon: Literal["INTRADAY", "2_3_DAYS", "1_WEEK", "2_WEEKS"]
+    risk_reward_ratio: float
+    order_type: Literal["MARKET", "LIMIT", "SL-LIMIT"]
+    execution_notes: str = Field(..., max_length=200)
 
 
 # ── Researcher Schemas ────────────────────────────────────────────
@@ -201,6 +357,195 @@ class ResearcherPayload(BaseModel):
         description="The one major market risk this thesis is intentionally ignoring.",
     )
 
+
+class DebaterPayload(BaseModel):
+    """Validated structured output from a Risk Debater (Aggressive / Conservative / Neutral).
+
+    The debater ingests both Bull and Bear ResearcherPayloads and produces
+    a single risk-weighted verdict with position-sizing guidance.
+    """
+
+    ticker: str
+    debater_role: Literal["AGGRESSIVE", "CONSERVATIVE", "NEUTRAL"] = Field(
+        ..., description="Which risk persona produced this payload"
+    )
+    bull_target_probability: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Estimated probability the Bull target price is reached within the trade horizon",
+    )
+    bear_target_probability: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Estimated probability the Bear target price is reached within the trade horizon",
+    )
+    risk_reward_ratio: float = Field(
+        ...,
+        description="Computed risk-reward ratio (reward / risk)",
+    )
+    verdict: Literal["BULLISH", "BEARISH", "NEUTRAL"] = Field(
+        ..., description="Directional verdict after comparing both payloads"
+    )
+    position_size_recommendation_pct: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of max allocated capital to commit (0.0 = skip, 1.0 = full size)",
+    )
+    key_rationale: str = Field(
+        ...,
+        description="1-sentence explanation grounded in the two provided payloads",
+    )
+    critical_risk_flagged: str = Field(
+        ...,
+        description="The single most dangerous risk the trade must survive to succeed",
+    )
+
+
+class ConservativeVetoPayload(DebaterPayload):
+    """Conservative Risk Officer output — extends DebaterPayload with structural risk assessment.
+
+    Only used by the Conservative Risk Officer.  The Aggressive and Neutral
+    debaters continue to use the base DebaterPayload.
+    """
+
+    debater_role: Literal["CONSERVATIVE"] = Field(
+        default="CONSERVATIVE",
+        description="Locked to CONSERVATIVE for this risk persona",
+    )
+    structural_risk: bool = Field(
+        ...,
+        description="True if a significant structural risk is identified (regulatory, "
+        "macroeconomic, major fundamental weakness, extreme volatility)",
+    )
+    probability_of_structural_risk: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Assessed likelihood of the structural risk manifesting",
+    )
+    veto_confidence: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Confidence in the structural risk assessment and veto decision",
+    )
+    rejection_reason: str = Field(
+        ...,
+        description="Detailed, evidence-based reason for rejection. "
+        "Must cite specific fields from upstream analyst payloads when veto triggers. "
+        "Leave empty if no veto.",
+    )
+
+
+CONSERVATIVE_VETO_SCHEMA_PROMPT = """\
+You MUST output ONLY a valid JSON object with exactly these keys:
+{
+  "ticker": "string — the stock ticker (e.g. RELIANCE.NS)",
+  "debater_role": "Must be 'CONSERVATIVE'",
+  "bull_target_probability": "number between 0.0 and 1.0",
+  "bear_target_probability": "number between 0.0 and 1.0",
+  "risk_reward_ratio": "number — computed risk-reward ratio",
+  "verdict": "BULLISH | BEARISH | NEUTRAL",
+  "position_size_recommendation_pct": "number between 0.0 and 1.0 — set to 0.0 if veto triggers",
+  "key_rationale": "string — 1-sentence explanation",
+  "critical_risk_flagged": "string — the single most dangerous risk",
+  "structural_risk": "boolean — true if a significant structural risk exists",
+  "probability_of_structural_risk": "number between 0.0 and 1.0 — how likely the risk manifests",
+  "veto_confidence": "number between 0.0 and 1.0 — your confidence in this assessment",
+  "rejection_reason": "string — REQUIRED if structural_risk is true AND probability > 0.80 AND veto_confidence > 0.80. Cite specific analyst fields. Leave empty otherwise."
+}
+No other text. No markdown, no explanation, no conversational filler."""
+
+NEUTRAL_ARBITRATOR_SCHEMA_PROMPT = """\
+You MUST output ONLY a valid JSON object with exactly these keys:
+{
+  "ticker": "string — the stock ticker (e.g. RELIANCE.NS)",
+  "debater_role": "Must be 'NEUTRAL'",
+  "risk_reward_ratio": "number — (Bull target_price - entry_price) / (entry_price - Bear target_price)",
+  "verdict": "BULLISH if R:R >= 2.0 | BEARISH if R:R <= 0.5 | NEUTRAL otherwise"
+}
+No other text. No markdown, no explanation, no conversational filler."""
+
+
+class NeutralArbitratorPayload(BaseModel):
+    """Pure mathematical R:R calculator. No opinion, no probabilities, no verdict guesswork.
+
+    Only the Neutral Agent uses this. It computes the risk-reward ratio from
+    Bull and Bear target prices and derives a deterministic verdict.
+    """
+
+    ticker: str
+    debater_role: Literal["NEUTRAL"] = Field(default="NEUTRAL")
+    risk_reward_ratio: float = Field(
+        ...,
+        ge=0.0,
+        description="(Bull target_price - entry) / (entry - Bear target_price)",
+    )
+    verdict: Literal["BULLISH", "BEARISH", "NEUTRAL"] = Field(
+        ...,
+        description="Deterministic: R:R >= 2.0 → BULLISH, R:R <= 0.5 → BEARISH, else NEUTRAL",
+    )
+
+
+class ManagerExecutionPayload(BaseModel):
+    """Final structured execution order from the Portfolio Manager.
+
+    This is the terminal node in the agent pipeline.  It ingests three
+    DebaterPayloads (Aggressive / Conservative / Neutral) and produces a
+    single machine-readable trade instruction with hard numeric levels.
+    """
+
+    ticker: str
+    rating: Literal["STRONG_BUY", "BUY", "HOLD", "SELL", "SHORT"] = Field(
+        ..., description="Final trade rating"
+    )
+    entry_price: float = Field(
+        ..., description="Specific entry price level, or 0 for market entry"
+    )
+    stop_loss: float = Field(
+        ..., description="Mandatory stop-loss price level"
+    )
+    target_1: float = Field(
+        ..., description="First profit-taking price target"
+    )
+    target_2: float = Field(
+        ..., description="Extended profit target if momentum sustains"
+    )
+    position_size_pct: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of trading capital to deploy (0.0 = rejected trade)",
+    )
+    time_horizon: Literal["INTRADAY", "2_3_DAYS", "1_WEEK", "2_WEEKS"] = Field(
+        ..., description="Expected holding period"
+    )
+    risk_reward_ratio: float = Field(
+        ..., description="Computed from entry / stop-loss / target_1"
+    )
+    confidence_score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Portfolio Manager's confidence in this decision",
+    )
+    executive_summary: str = Field(
+        ...,
+        max_length=300,
+        description="Concise action plan with key risk levels (max 2 sentences)",
+    )
+    investment_thesis: str = Field(
+        ..., description="Detailed reasoning grounded in downstream debater payloads"
+    )
+    rejection_reason: str = Field(
+        default="",
+        description="Required if rating is HOLD or SELL; otherwise empty",
+    )
+
+
 # ── Fundamentals Analyst ──────────────────────────────────────────
 
 
@@ -208,11 +553,11 @@ class FundamentalsAnalysis(BaseModel):
     """Structured valuation summary extracted from corporate metrics."""
 
     ticker: str = Field(..., description="Company ticker symbol")
-    valuation_score: float = Field(
+    valuation_score: int = Field(
         ...,
-        ge=1.0,
-        le=10.0,
-        description="1.0 (extremely undervalued) to 10.0 (extremely overvalued)",
+        ge=1,
+        le=10,
+        description="1 (extremely undervalued) to 10 (extremely overvalued) — whole numbers only",
     )
     health_status: Literal["Robust", "Stable", "Vulnerable", "Distressed"] = Field(
         ..., description="Balance-sheet health classification"
@@ -242,8 +587,12 @@ class MarketAnalysis(BaseModel):
         "WEAK_DOWNTREND",
         "STRONG_DOWNTREND",
     ] = Field(..., description="Primary/secondary trend classification")
-    key_support: float = Field(..., description="Immediate support level")
-    key_resistance: float = Field(..., description="Immediate resistance level")
+    key_support: list[float] = Field(
+        ..., min_length=1, description="Support levels S1,S2,S3 from closest to furthest"
+    )
+    key_resistance: list[float] = Field(
+        ..., min_length=1, description="Resistance levels R1,R2,R3 from closest to furthest"
+    )
     momentum_state: Literal["OVERSOLD", "OVERBOUGHT", "NEUTRAL"] = Field(
         ..., description="RSI / MACD momentum oscillator state"
     )

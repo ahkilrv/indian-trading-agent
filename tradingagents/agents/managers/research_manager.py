@@ -1,5 +1,35 @@
+import json
+import logging
 
+from tradingagents.agents.analysts.schemas import (
+    ResearchManagerVerdict,
+    RESEARCH_MANAGER_SCHEMA_PROMPT,
+)
 from tradingagents.agents.utils.agent_utils import build_instrument_context
+
+logger = logging.getLogger(__name__)
+
+RESEARCH_MANAGER_SYSTEM_PROMPT = (
+    "You are the Research Manager for an algorithmic Indian equity fund. "
+    "You receive Bull and Bear ResearcherPayload JSON objects and must produce "
+    "a definitive, data-grounded verdict.\n\n"
+    "DECISION RULES (apply in order):\n"
+    "1. Compare Bull's `target_price` and Bear's `target_price`. The thesis "
+    "with the stronger `supporting_metrics` (more data-grounded citations, "
+    "NOT higher confidence_score) wins.\n"
+    "2. If Bull's `confidence_score` > 0.7 AND Bear's `confidence_score` < 0.5 "
+    "→ lean BUY. If Bear's `confidence_score` > 0.7 AND Bull's < 0.5 → SELL.\n"
+    "3. If Bear's `fatal_flaw_ignored` is confirmed by an analyst source "
+    "(check the STRUCTURED ANALYST SCORES section) → weight Bear heavily.\n"
+    "4. DO NOT DEFAULT TO HOLD. Pick BUY or SELL unless both sides are equally "
+    "compelling with identical data grounding.\n"
+    "5. `entry_zone`: Use Bull's target if BUY, Bear's target if SELL. Add a "
+    "5% buffer.\n"
+    "6. `stop_loss`: If BUY, set at the lower of (Bear's target_price, 2×ATR "
+    "below entry). If SELL, set at the higher of (Bull's target_price, 2×ATR "
+    "above entry).\n"
+    "7. Output ONLY a valid JSON object matching the schema. No conversational filler."
+)
 
 
 def create_research_manager(llm, memory):
@@ -17,46 +47,82 @@ def create_research_manager(llm, memory):
         past_memories = memory.get_memories(curr_situation, n_matches=2)
 
         past_memory_str = ""
-        for i, rec in enumerate(past_memories, 1):
+        for rec in past_memories:
             past_memory_str += rec["recommendation"] + "\n\n"
 
-        prompt = f"""As the Research Manager for an **Indian market (NSE/BSE) short-term trading desk**, critically evaluate this debate round and make a definitive decision for a short-term trade (intraday to 2 weeks).
+        # Include structured payloads for precise comparison
+        bull_json = json.dumps(
+            state.get("bull_researcher_payload"), indent=2
+        ) if state.get("bull_researcher_payload") else "N/A"
+        bear_json = json.dumps(
+            state.get("bear_researcher_payload"), indent=2
+        ) if state.get("bear_researcher_payload") else "N/A"
 
-Your recommendation — Buy, Sell, or Hold — must be clear, actionable, and specific to the short-term horizon. Avoid defaulting to Hold unless both sides present equally compelling arguments with no clear edge. Commit to the stance with the strongest short-term evidence.
+        prompt = f"""{RESEARCH_MANAGER_SYSTEM_PROMPT}
 
-Develop a detailed trading plan for the trader:
+{RESEARCH_MANAGER_SCHEMA_PROMPT}
 
-1. **Recommendation**: Buy / Sell / Hold — decisive, with the strongest debate arguments supporting it
-2. **Rationale**: Why these arguments win for the SHORT-TERM (not long-term investment thesis)
-3. **Entry Strategy**: Specific entry price/zone, or conditions for entry (e.g., "buy on pullback to 2800 support")
-4. **Stop-Loss Level**: Specific price — non-negotiable for short-term trades
-5. **Profit Targets**: Target 1 (conservative) and Target 2 (extended)
-6. **Time Horizon**: How long to hold — intraday / 2-3 days / 1 week
-7. **Key Risks**: Top 2-3 risks to monitor during the trade
+=== BULL RESEARCHER THESIS ===
+{bull_json}
 
-**Indian Market Context**: Consider NIFTY trend, FII/DII flows, sector momentum, and upcoming events (RBI policy, earnings, expiry) when making your decision.
-
-Past reflections on mistakes:
-\"{past_memory_str}\"
+=== BEAR RESEARCHER THESIS ===
+{bear_json}
 
 {instrument_context}
 
 Debate History:
-{history}"""
-        response = llm.invoke(prompt)
+{history}
+
+Past reflections:
+{past_memory_str}
+
+Produce your verdict as a JSON object matching the schema above.
+"""
+
+        try:
+            json_llm = llm.bind(response_format={"type": "json_object"})
+        except Exception:
+            json_llm = llm
+
+        response = json_llm.invoke(prompt)
+        raw_output = response.content if hasattr(response, "content") else str(response)
+
+        rm_verdict = None
+        plan_text = raw_output
+
+        try:
+            parsed = ResearchManagerVerdict.model_validate_json(raw_output)
+            rm_verdict = parsed.model_dump()
+            plan_text = (
+                f"RECOMMENDATION: {parsed.recommendation}\n"
+                f"Entry: {parsed.entry_zone} | SL: ₹{parsed.stop_loss} | "
+                f"T1: ₹{parsed.target_1} | T2: ₹{parsed.target_2}\n"
+                f"Horizon: {parsed.time_horizon}\n"
+                f"Rationale: {parsed.rationale}\n"
+                f"Key Risk: {parsed.key_risk}\n"
+                f"Bull arguments accepted: {'; '.join(parsed.bull_arguments_accepted)}\n"
+                f"Bear arguments accepted: {'; '.join(parsed.bear_arguments_accepted)}"
+            )
+            logger.info("Research Manager returned valid structured verdict")
+        except Exception as exc:
+            logger.warning("Research Manager verdict validation failed: %s", exc)
 
         new_investment_debate_state = {
-            "judge_decision": response.content,
+            "judge_decision": plan_text,
             "history": investment_debate_state.get("history", ""),
             "bear_history": investment_debate_state.get("bear_history", ""),
             "bull_history": investment_debate_state.get("bull_history", ""),
-            "current_response": response.content,
+            "current_response": plan_text,
             "count": investment_debate_state["count"],
         }
 
-        return {
+        result = {
             "investment_debate_state": new_investment_debate_state,
-            "investment_plan": response.content,
+            "investment_plan": plan_text,
         }
+        if rm_verdict is not None:
+            result["research_manager_verdict"] = rm_verdict
+
+        return result
 
     return research_manager_node

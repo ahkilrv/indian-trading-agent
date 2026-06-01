@@ -131,6 +131,7 @@ def compile_report(
     market_analysis: Optional[dict[str, Any]] = None,
     fundamentals_analysis: Optional[dict[str, Any]] = None,
     news_analysis: Optional[dict[str, Any]] = None,
+    social_sentiment: Optional[dict[str, Any]] = None,
 ) -> str:
     """Use the LLM to compile all research into a single beautiful HTML report.
 
@@ -143,6 +144,7 @@ def compile_report(
         market_analysis=market_analysis,
         fundamentals_analysis=fundamentals_analysis,
         news_analysis=news_analysis,
+        social_sentiment=social_sentiment,
     )
 
     if formatted:

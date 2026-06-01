@@ -13,6 +13,7 @@ export interface Quote {
   pe_ratio?: number;
   fifty_two_week_high?: number;
   fifty_two_week_low?: number;
+  data_source?: string;
 }
 
 export interface ChartDataPoint {
@@ -24,11 +25,20 @@ export interface ChartDataPoint {
   volume: number;
 }
 
+export interface ChartData {
+  ticker: string;
+  period: string;
+  interval: string;
+  data: ChartDataPoint[];
+  data_source?: string;
+}
+
 export interface MarketStatus {
   session: string;
   is_trading_day: boolean;
   nifty: { price: number; change: number; change_percent: number };
   banknifty: { price: number; change: number; change_percent: number };
+  data_source?: string;
 }
 
 export interface WatchlistItem {
@@ -70,6 +80,19 @@ export interface AnalysisResult {
   stats?: Record<string, number>;
   duration_seconds?: number;
   created_at?: string;
+  // Structured Pydantic payloads (deserialized from DB JSON columns)
+  market_analysis?: Record<string, any>;
+  fundamentals_analysis?: Record<string, any>;
+  news_analysis?: Record<string, any>;
+  social_sentiment?: Record<string, any>;
+  bull_researcher_payload?: Record<string, any>;
+  bear_researcher_payload?: Record<string, any>;
+  research_manager_verdict?: Record<string, any>;
+  trader_execution_plan?: Record<string, any>;
+  aggressive_debater_payload?: Record<string, any>;
+  conservative_debater_payload?: Record<string, any>;
+  neutral_debater_payload?: Record<string, any>;
+  portfolio_manager_payload?: Record<string, any>;
 }
 
 export interface AnalysisHistoryItem {
@@ -138,7 +161,7 @@ export interface BacktestWSEvent {
 }
 
 export interface WSEvent {
-  type: "report" | "debate" | "risk_debate" | "signal" | "agent_status" | "complete" | "error" | "stats";
+  type: "report" | "debate" | "risk_debate" | "signal" | "agent_status" | "complete" | "error" | "stats" | "structured_payload";
   section?: string;
   content?: string;
   side?: string;
@@ -152,6 +175,9 @@ export interface WSEvent {
   tool_calls?: number;
   tokens_in?: number;
   tokens_out?: number;
+  // Structured payload fields
+  field?: string;
+  data?: Record<string, any>;
 }
 
 export type Signal = "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "SHORT" | "OVERWEIGHT" | "UNDERWEIGHT";

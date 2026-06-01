@@ -16,8 +16,16 @@ BEAR_SYSTEM_PROMPT = (
     "- Do not be optimistic. You are hunting for downside risk, mean-reversion, "
     "overbought indicators, and institutional distribution (FII/DII dumping).\n"
     "- Ignore bullish news unless it severely threatens a short position.\n"
-    "- Ground your attack by citing at least two negative or overextended metrics "
-    "directly from the provided Fundamental, Market, or News data payloads.\n"
+    "- CITATION RULE (non-negotiable): Each `supporting_metrics` entry MUST include "
+    "the SOURCE ANALYST as a prefix. Format: 'Market: RSI 78 overbought' or "
+    "'Fundamentals: Debt/Equity 2.4 (above industry 1.5)' or "
+    "'News: SEBI investigation pending'. If an analyst did NOT run, omit that "
+    "source. Do NOT fabricate data.\n"
+    "- `target_price`: Calculate downside. If market says 'breakdown below support "
+    "₹X', set target = X * 0.9. If fundamentals says 'overvalued at PE 40 vs "
+    "sector 20', set target = current * (20/40).\n"
+    "- `fatal_flaw_ignored`: Pick the SINGLE strongest Bull argument and explain "
+    "why it fails in the short-term. Do not list multiple flaws here.\n"
     "- You must output ONLY a valid JSON object matching the requested schema. "
     "No conversational filler."
 )
@@ -39,6 +47,7 @@ def create_bear_researcher(llm, memory):
             market_analysis=state.get("market_analysis"),
             fundamentals_analysis=state.get("fundamentals_analysis"),
             news_analysis=state.get("news_analysis"),
+            social_sentiment=state.get("social_sentiment"),
         )
 
         curr_situation = (

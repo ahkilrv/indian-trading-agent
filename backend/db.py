@@ -225,14 +225,40 @@ def remove_from_watchlist(ticker: str):
 
 def save_analysis(task_id: str, data: dict):
     with get_db() as conn:
+        # Ensure new structured columns exist (idempotent ALTER TABLE)
+        for col in (
+            ("market_analysis", "TEXT"),
+            ("fundamentals_analysis", "TEXT"),
+            ("news_analysis", "TEXT"),
+            ("social_sentiment", "TEXT"),
+            ("bull_researcher_payload", "TEXT"),
+            ("bear_researcher_payload", "TEXT"),
+            ("research_manager_verdict", "TEXT"),
+            ("trader_execution_plan", "TEXT"),
+            ("aggressive_debater_payload", "TEXT"),
+            ("conservative_debater_payload", "TEXT"),
+            ("neutral_debater_payload", "TEXT"),
+            ("portfolio_manager_payload", "TEXT"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE analysis_history ADD COLUMN {col[0]} {col[1]}")
+            except Exception:
+                pass  # column already exists
+
         conn.execute(
             """INSERT OR REPLACE INTO analysis_history
             (task_id, ticker, trade_date, signal, market_report, sentiment_report,
              news_report, fundamentals_report, investment_plan, trader_investment_plan,
              final_trade_decision, bull_history, bear_history,
              risk_aggressive_history, risk_conservative_history, risk_neutral_history,
-             stats, duration_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             stats, duration_seconds,
+             market_analysis, fundamentals_analysis, news_analysis, social_sentiment,
+             bull_researcher_payload, bear_researcher_payload,
+             research_manager_verdict, trader_execution_plan,
+             aggressive_debater_payload, conservative_debater_payload,
+             neutral_debater_payload, portfolio_manager_payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 task_id,
                 data.get("ticker"),
@@ -252,6 +278,18 @@ def save_analysis(task_id: str, data: dict):
                 data.get("risk_neutral_history"),
                 json.dumps(data.get("stats")) if data.get("stats") else None,
                 data.get("duration_seconds"),
+                json.dumps(data.get("market_analysis")) if data.get("market_analysis") else None,
+                json.dumps(data.get("fundamentals_analysis")) if data.get("fundamentals_analysis") else None,
+                json.dumps(data.get("news_analysis")) if data.get("news_analysis") else None,
+                json.dumps(data.get("social_sentiment")) if data.get("social_sentiment") else None,
+                json.dumps(data.get("bull_researcher_payload")) if data.get("bull_researcher_payload") else None,
+                json.dumps(data.get("bear_researcher_payload")) if data.get("bear_researcher_payload") else None,
+                json.dumps(data.get("research_manager_verdict")) if data.get("research_manager_verdict") else None,
+                json.dumps(data.get("trader_execution_plan")) if data.get("trader_execution_plan") else None,
+                json.dumps(data.get("aggressive_debater_payload")) if data.get("aggressive_debater_payload") else None,
+                json.dumps(data.get("conservative_debater_payload")) if data.get("conservative_debater_payload") else None,
+                json.dumps(data.get("neutral_debater_payload")) if data.get("neutral_debater_payload") else None,
+                json.dumps(data.get("portfolio_manager_payload")) if data.get("portfolio_manager_payload") else None,
             ),
         )
 
@@ -269,8 +307,20 @@ def get_analysis(task_id: str) -> dict | None:
         row = conn.execute("SELECT * FROM analysis_history WHERE task_id = ?", (task_id,)).fetchone()
         if row:
             d = dict(row)
-            if d.get("stats"):
-                d["stats"] = json.loads(d["stats"])
+            # Deserialize JSON columns
+            for col in (
+                "stats", "market_analysis", "fundamentals_analysis",
+                "news_analysis", "social_sentiment",
+                "bull_researcher_payload", "bear_researcher_payload",
+                "research_manager_verdict", "trader_execution_plan",
+                "aggressive_debater_payload", "conservative_debater_payload",
+                "neutral_debater_payload", "portfolio_manager_payload",
+            ):
+                if d.get(col):
+                    try:
+                        d[col] = json.loads(d[col])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
             return d
         return None
 

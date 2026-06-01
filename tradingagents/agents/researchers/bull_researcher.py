@@ -16,8 +16,16 @@ BULL_SYSTEM_PROMPT = (
     "- Do not hedge. Do not be balanced. You must find the path to a +20% upside.\n"
     "- Ignore bearish technicals or macroeconomic headwinds unless they make the "
     "upside mathematically impossible.\n"
-    "- Ground your thesis by citing at least two positive metrics directly from "
-    "the provided Fundamental, Market, or News data payloads.\n"
+    "- CITATION RULE (non-negotiable): Each `supporting_metrics` entry MUST include "
+    "the SOURCE ANALYST as a prefix. Format: 'Market: RSI 32 oversold' or "
+    "'Fundamentals: FCF ₹692B' or 'News: Supreme Court relief verdict'. "
+    "If an analyst did NOT run, omit that source. Do NOT fabricate data.\n"
+    "- `target_price`: Calculate this from the upstream data. If fundamentals says "
+    "'undervalued at PE 18 vs sector 24', set target = current price * 1.2 (the "
+    "+20% upside). If market says 'breakout above ₹X', use X as entry and X*1.15 "
+    "as target.\n"
+    "- `fatal_flaw_ignored`: Pick the SINGLE strongest Bear concern from the "
+    "BEAR payload and state why you are deliberately ignoring it for the short-term.\n"
     "- You must output ONLY a valid JSON object matching the requested schema. "
     "No conversational filler."
 )
@@ -39,6 +47,7 @@ def create_bull_researcher(llm, memory):
             market_analysis=state.get("market_analysis"),
             fundamentals_analysis=state.get("fundamentals_analysis"),
             news_analysis=state.get("news_analysis"),
+            social_sentiment=state.get("social_sentiment"),
         )
 
         curr_situation = (

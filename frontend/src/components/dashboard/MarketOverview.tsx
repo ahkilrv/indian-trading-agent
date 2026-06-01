@@ -52,6 +52,13 @@ export function MarketOverview() {
         <span className="font-sans font-semibold">{data.banknifty.price.toLocaleString()}</span>
         {formatChange(data.banknifty.change, data.banknifty.change_percent)}
       </div>
+
+      {data.data_source && (
+        <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+          {data.data_source}
+        </span>
+      )}
     </div>
   );
 }

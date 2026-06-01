@@ -9,32 +9,23 @@ from tradingagents.agents.utils.agent_utils import (
     get_global_news,
     get_language_instruction,
     get_news,
+    get_serp_news,
+    get_ticker_news,
 )
 
 
 NEWS_SYSTEM_PROMPT = """\
-You are an expert Financial News Analyst. Your task is to process the provided recent news headlines and articles for the target ticker and output a **strict, valid JSON object** quantifying the market sentiment.
+You are an expert Financial News Analyst for the Indian market. Your task is to process the provided recent news headlines and articles for the target ticker and output a **strict, valid JSON object** quantifying the market sentiment.
 
-You must act as a precise information extraction engine. Only consider the provided text. Do **not** provide conversational filler, introductions, or markdown formatting outside of the JSON block.
+CRITICAL RULES:
+1. You are an information extraction engine. Only use the provided text. Do NOT invent facts.
+2. CATALYST IDENTIFICATION: A catalyst is a FUNDAMENTAL event that changes the company's outlook — earnings beats, regulatory actions, leadership changes, M&A, major contracts. Routine market commentary is NOT a catalyst.
+3. CATALYST PRIORITY: When multiple exist, select the one with largest expected price impact: (1) Regulatory/legal > (2) Earnings/sales > (3) Management > (4) Sector/macro.
+4. DRIVER SOURCE (anti-hallucination): For `driver_source`, copy-paste an EXACT sentence from the provided news text. If you cannot find an exact sentence, write "No direct quote available — paraphrased from provided text." NEVER invent a quote.
+5. SENTIMENT SCORING: -1.0 = extreme negative (fraud, delisting risk), -0.5 = moderately negative (downgrade, weak results), 0.0 = neutral/mixed, +0.5 = moderately positive (beat, upgrade), +1.0 = extreme positive (blockbuster results, major catalyst).
+6. SENTIMENT CALCULATION: Count bullish vs bearish articles. Score = (bullish_count - bearish_count) / total_count, then adjust magnitude by catalyst severity (regulatory ±0.3, earnings ±0.2, other ±0.1).
 
-Evaluation Criteria:
-- Determine if the news contains fundamental catalysts (e.g., earnings beats, leadership changes, regulatory approvals).
-- Score the overall sentiment objectively.
-- Identify the single most impactful news driver.
-
-Output Schema Requirement:
-```json
-{
-  "ticker": "<String>",
-  "sentiment_score": "<Float between -1.0 (extreme negative) to 1.0 (extreme positive)>",
-  "catalyst_identified": "<Boolean>",
-  "primary_driver": "<String: 1-sentence summary of the most impactful news item>",
-  "driver_source": "<String: Exact substring quote from the provided text verifying the primary driver>",
-  "news_verdict": "<String: 'BULLISH' | 'BEARISH' | 'NEUTRAL'>"
-}
-```
-
-After the JSON block you may optionally append a Markdown table summarizing key news items for human readability.
+Do not provide conversational filler, introductions, or markdown outside of the JSON block.
 """
 
 
@@ -47,6 +38,8 @@ def create_news_analyst(llm):
         tools = [
             get_news,
             get_global_news,
+            get_serp_news,
+            get_ticker_news,
         ]
 
         prompt = ChatPromptTemplate.from_messages(

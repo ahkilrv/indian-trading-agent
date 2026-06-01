@@ -15,8 +15,12 @@ import { backtestHelp } from "@/lib/help-content";
 
 export default function BacktestPage() {
   const [ticker, setTicker] = useState("RELIANCE");
-  const [startDate, setStartDate] = useState("2025-03-01");
-  const [endDate, setEndDate] = useState("2025-04-10");
+  const [startDate, setStartDate] = useState(
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+  );
+  const [endDate, setEndDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
   const [intervalDays, setIntervalDays] = useState(7);
   const [capital, setCapital] = useState(100000);
   const [positionSize, setPositionSize] = useState(10);
