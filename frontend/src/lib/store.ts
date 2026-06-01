@@ -77,7 +77,6 @@ export const useAnalysisStore = create<AnalysisState>()(
         }
 
         set({
-          taskId: null,
           ticker,
           tradeDate,
           status: "running",

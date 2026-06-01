@@ -44,14 +44,6 @@ function AnalysisPageInner() {
     return () => clearTimeout(t);
   }, []);
 
-  // Belt-and-suspenders: if we somehow have "running" status with no taskId
-  // (can happen from stale localStorage), auto-reset to idle.
-  useEffect(() => {
-    if (hydrated && analysis.status === "running" && !analysis.taskId) {
-      analysis.reset();
-    }
-  }, [hydrated, analysis.status, analysis.taskId]);
-
   // Local input state (pre-filled from URL or last analysis ticker)
   const [tickerInput, setTickerInput] = useState(defaultTicker || analysis.ticker || "");
   const [tradeDateInput, setTradeDateInput] = useState(
