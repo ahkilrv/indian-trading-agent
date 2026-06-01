@@ -185,15 +185,38 @@ function AnalysisPageInner() {
       )}
 
       {/* Live Heartbeat */}
-      {analysis.status === "running" && analysis.heartbeat && (
+      {analysis.status === "running" && (
         <Card className="border-blue-200 bg-blue-50/50">
           <CardContent className="p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-              <span className="text-xs text-muted-foreground">Live:</span>
-              <span className="text-blue-700 font-mono text-xs truncate flex-1">{analysis.heartbeat}</span>
+            <div className="flex items-center gap-2 text-sm flex-wrap">
+              <Loader2 className="h-3 w-3 animate-spin text-blue-500 shrink-0" />
+              {analysis.activeAgent && (
+                <span className="text-blue-700 font-semibold text-xs shrink-0">
+                  {analysis.activeAgent}
+                </span>
+              )}
+              {analysis.activeAgent && <span className="text-muted-foreground text-xs">·</span>}
+              <span className="text-blue-700 font-mono text-xs shrink-0">
+                step {analysis.chunkCount}
+              </span>
+              {analysis.toolName && (
+                <>
+                  <span className="text-muted-foreground text-xs">·</span>
+                  <span className="text-blue-600 text-[11px] font-medium truncate">
+                    {analysis.toolName}
+                  </span>
+                </>
+              )}
+              {!analysis.toolName && analysis.heartbeat && (
+                <>
+                  <span className="text-muted-foreground text-xs">·</span>
+                  <span className="text-blue-600 text-[11px] truncate flex-1">
+                    {analysis.heartbeat.length > 60 ? analysis.heartbeat.slice(0, 60) + "..." : analysis.heartbeat}
+                  </span>
+                </>
+              )}
               {analysis.lastUpdateAt > 0 && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground ml-auto shrink-0">
                   {Math.floor((Date.now() - analysis.lastUpdateAt) / 1000)}s ago
                 </span>
               )}
