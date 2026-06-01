@@ -152,6 +152,11 @@ function AnalysisPageInner() {
                 </>
               )}
             </Button>
+            {analysis.status === "running" && (
+              <Button onClick={analysis.stop} variant="destructive" size="sm" className="h-8">
+                Stop
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -66,6 +66,8 @@ export const runAnalysis = (data: {
   max_risk_discuss_rounds?: number;
   output_language?: string;
 }) => fetchAPI(`/api/analysis/run`, { method: "POST", body: JSON.stringify(data) });
+export const stopAnalysis = (taskId: string) =>
+  fetchAPI(`/api/analysis/${taskId}/stop`, { method: "POST" });
 export const getAnalysisResult = (taskId: string) => fetchAPI(`/api/analysis/${taskId}`);
 export const getAnalysisHistory = (limit = 50) => fetchAPI(`/api/analysis/history/list?limit=${limit}`);
 export const updatePnL = (taskId: string, data: { entry_price: number; exit_price: number; reflect?: boolean }) =>

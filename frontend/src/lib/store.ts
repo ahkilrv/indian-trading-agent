@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { runAnalysis, connectAnalysisWS } from "@/lib/api";
+import { runAnalysis, stopAnalysis, connectAnalysisWS } from "@/lib/api";
 import type { WSEvent } from "@/lib/types";
 
 interface AnalysisOptions {
@@ -41,6 +41,7 @@ interface AnalysisState {
   structuredPayloads: Record<string, any>;
 
   start: (ticker: string, tradeDate: string, options?: AnalysisOptions) => Promise<void>;
+  stop: () => Promise<void>;
   reset: () => void;
 }
 
@@ -165,6 +166,10 @@ export const useAnalysisStore = create<AnalysisState>()(
             ws.close();
             set({ status: "error", error: event.message ?? "Unknown error", ws: null });
             break;
+          case "stopped":
+            ws.close();
+            set({ status: "completed", ws: null, heartbeat: "Stopped by user" });
+            break;
         }
       });
 
@@ -172,6 +177,18 @@ export const useAnalysisStore = create<AnalysisState>()(
     } catch (e: any) {
       set({ status: "error", error: e.message });
     }
+  },
+
+  stop: async () => {
+    const { taskId, ws } = get();
+    if (!taskId) return;
+    try {
+      await stopAnalysis(taskId);
+    } catch {}
+    if (ws) {
+      try { ws.close(); } catch {}
+    }
+    set({ status: "completed", ws: null, heartbeat: "Stopped by user" });
   },
 
       reset: () => {

@@ -35,7 +35,11 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
 
     start_time = time.time()
     _tasks[task_id]["status"] = "running"
+    _tasks[task_id]["stopped"] = False
     stats = StatsCallback()
+
+    def _should_stop() -> bool:
+        return bool(_tasks.get(task_id, {}).get("stopped", False))
 
     try:
         ta = TradingAgentsGraph(
@@ -55,6 +59,15 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
 
         for chunk in ta.graph.stream(init_state, **stream_args):
             chunk_count += 1
+            # Check stop signal
+            if _should_stop():
+                print(f"[Analysis {task_id}] Stopped by user after {chunk_count} chunks", flush=True)
+                loop.run_until_complete(manager.send_event(task_id, {
+                    "type": "stopped",
+                    "message": f"Analysis stopped after {chunk_count} chunks",
+                }))
+                _tasks[task_id]["status"] = "stopped"
+                break
             # Heartbeat — let frontend know we're still alive
             last_message = ""
             if chunk.get("messages"):
@@ -289,6 +302,19 @@ def get_analysis_result(task_id: str):
     if result:
         return result
     return {"error": "Analysis not found"}
+
+
+@router.post("/{task_id}/stop")
+def stop_analysis(task_id: str):
+    """Stop a running analysis."""
+    if task_id not in _tasks:
+        return {"ok": False, "error": "Task not found"}
+    task = _tasks[task_id]
+    if task["status"] not in ("pending", "running"):
+        return {"ok": False, "error": f"Task is already {task['status']}"}
+    _tasks[task_id]["stopped"] = True
+    _tasks[task_id]["status"] = "stopping"
+    return {"ok": True, "task_id": task_id, "message": "Stop signal sent"}
 
 
 class PnLUpdate(PydanticBaseModel):
