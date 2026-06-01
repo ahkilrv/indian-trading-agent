@@ -15,6 +15,7 @@ from backend.db import (
     list_paper_trades,
     update_paper_trade_prices,
     update_paper_trade_status,
+    save_simulated_exit,
     save_recommender_backtest_row,
     get_db,
 )
@@ -43,8 +44,16 @@ def open_paper_trade(
     success_probability: int = None,
     triggered_signals: list | None = None,
     notes: str = None,
+    stop_loss: float = None,
+    target_1: float = None,
+    target_2: float = None,
+    time_horizon: str = None,
 ) -> dict:
-    """Open a new paper trade at current market price."""
+    """Open a new paper trade at current market price.
+
+    Optional strategy parameters (stop_loss, targets, time_horizon) enable
+    the refresh endpoint to simulate day-by-day exits based on price action.
+    """
     symbol = normalize_ticker(ticker)
     try:
         t = yf.Ticker(symbol)
@@ -55,10 +64,8 @@ def open_paper_trade(
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-    # Determine direction from signal
     direction = "SHORT" if signal and signal.upper() in ("SELL", "STRONG SELL", "UNDERWEIGHT", "SHORT") else "LONG"
 
-    # Auto-populate strategy name from source if not given
     if not strategy:
         strategy = SOURCE_STRATEGY_MAP.get(source, source)
 
@@ -74,7 +81,18 @@ def open_paper_trade(
         "triggered_signals": triggered_signals,
         "entry_price": round(current_price, 2),
         "notes": notes,
+        "stop_loss": stop_loss,
+        "target_1": target_1,
+        "target_2": target_2,
+        "time_horizon": time_horizon,
     })
+
+    # Immediately simulate to check if the trade already breached its stops
+    # (e.g., user opened it late)
+    try:
+        simulate_trade_single(trade_id)
+    except Exception:
+        pass
 
     return {
         "ok": True,
@@ -83,6 +101,9 @@ def open_paper_trade(
         "direction": direction,
         "entry_price": round(current_price, 2),
         "strategy": strategy,
+        "stop_loss": stop_loss,
+        "target_1": target_1,
+        "target_2": target_2,
     }
 
 
@@ -160,45 +181,225 @@ def _price_n_days_later(symbol: str, entry_date_str: str, n_trading_days: int) -
         return None
 
 
+def simulate_trade_single(trade_id: int) -> dict | None:
+    """Simulate a paper trade using post-entry OHLCV data, checking stops/targets.
+
+    For each trading day from entry to present, checks:
+      1. Did the low breach the stop-loss? If so, exit at stop_loss (or low, whichever is worse).
+      2. Did the high reach target_1? If so, exit at target_1.
+      3. Did the high reach target_2? If so, exit at target_2 (if target_1 already passed).
+      4. If no stop/target hit, hold until today's close (or expiry after time_horizon).
+      5. Volume check: require volume > 0 on exit day for realistic execution.
+
+    Returns the simulation result dict, or None if trade not found or no strategy params.
+    """
+    trades = list_paper_trades()
+    trade = next((t for t in trades if t["id"] == trade_id), None)
+    if not trade or trade["status"] != "active":
+        return None
+
+    stop_loss = trade.get("stop_loss")
+    target_1 = trade.get("target_1")
+    target_2 = trade.get("target_2")
+    time_horizon = trade.get("time_horizon")
+
+    # If no strategy params, fall back to simple horizon tracking
+    if not stop_loss and not target_1:
+        return _simple_refresh_single(trade)
+
+    entry_price = trade["entry_price"]
+    direction = trade.get("direction", "LONG")
+    is_short = direction == "SHORT"
+    entry_date_str = trade["entry_date"]
+
+    try:
+        entry_date = datetime.strptime(entry_date_str, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+    symbol = normalize_ticker(trade["ticker"])
+    today = date.today()
+
+    # Map time_horizon to max days
+    horizon_days = {"INTRADAY": 1, "1_WEEK": 7, "2_WEEKS": 10, "2_3_DAYS": 3}.get(time_horizon, 10) if time_horizon else 10
+
+    # Fetch OHLCV from entry to today + buffer
+    try:
+        t = yf.Ticker(symbol)
+        start = (entry_date - timedelta(days=1)).strftime("%Y-%m-%d")
+        end = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+        hist = t.history(start=start, end=end)
+        if hist.empty:
+            return _simple_refresh_single(trade)
+    except Exception:
+        return _simple_refresh_single(trade)
+
+    # Filter rows from entry_date onward
+    hist_after = hist[hist.index.date >= entry_date]
+    if hist_after.empty:
+        return _simple_refresh_single(trade)
+
+    # Simulate day-by-day
+    exit_price = None
+    exit_date = None
+    exit_reason = "held_to_expiry"
+    days_held = 0
+
+    for idx, row in hist_after.iterrows():
+        if exit_price is not None:
+            break
+        days_held += 1
+
+        op = float(row["Open"])
+        hi = float(row["High"])
+        lo = float(row["Low"])
+        cl = float(row["Close"])
+        vol = float(row.get("Volume", 0))
+
+        if vol <= 0:
+            continue  # skip zero-volume days
+
+        if is_short:
+            # SHORT: profit when price falls
+            # Stop-loss for SHORT = price goes UP past stop_loss
+            if stop_loss and hi >= stop_loss:
+                exit_price = max(stop_loss, op)  # we exit at worst of SL or open
+                exit_reason = f"stop_loss_hit (SHORT SL ₹{stop_loss:.2f})"
+                continue
+            if target_1 and lo <= target_1:
+                exit_price = target_1
+                exit_reason = f"target_1_hit (₹{target_1:.2f})"
+                continue
+            if target_2 and lo <= target_2:
+                exit_price = target_2
+                exit_reason = f"target_2_hit (₹{target_2:.2f})"
+                continue
+        else:
+            # LONG: profit when price rises
+            # Stop-loss for LONG = price goes DOWN past stop_loss
+            if stop_loss and lo <= stop_loss:
+                exit_price = min(stop_loss, op)  # we exit at worst of SL or open
+                exit_reason = f"stop_loss_hit (SL ₹{stop_loss:.2f})"
+                continue
+            if target_1 and hi >= target_1:
+                exit_price = target_1
+                exit_reason = f"target_1_hit (₹{target_1:.2f})"
+                continue
+            if target_2 and hi >= target_2:
+                exit_price = target_2
+                exit_reason = f"target_2_hit (₹{target_2:.2f})"
+                continue
+
+        # Horizon expiry check
+        if days_held >= horizon_days:
+            exit_price = cl
+            exit_reason = f"time_horizon_expired ({time_horizon or str(horizon_days) + 'd'})"
+            break
+
+    # If we never hit an exit condition (all data exhausted), use last close
+    if exit_price is None and days_held > 0:
+        exit_price = float(hist_after.iloc[-1]["Close"])
+        exit_reason = "held_to_present"
+
+    if exit_price is None:
+        return _simple_refresh_single(trade)
+
+    # Calculate P&L
+    if is_short:
+        pnl_pct = round((entry_price - exit_price) / entry_price * 100, 2)
+    else:
+        pnl_pct = round((exit_price - entry_price) / entry_price * 100, 2)
+
+    # Save simulated exit
+    save_simulated_exit(trade_id, round(exit_price, 2), pnl_pct, exit_reason)
+
+    # Also compute horizon prices for stats
+    _compute_horizon_prices(trade, symbol, entry_date)
+
+    return {
+        "trade_id": trade_id,
+        "ticker": trade["ticker"],
+        "entry_price": entry_price,
+        "exit_price": round(exit_price, 2),
+        "pnl_pct": pnl_pct,
+        "exit_reason": exit_reason,
+        "days_held": days_held,
+        "direction": direction,
+    }
+
+
+def _compute_horizon_prices(trade: dict, symbol: str, entry_date: date):
+    """Backfill horizon prices for stats (1d/3d/5d/10d) if not yet set."""
+    prices = {}
+    entry_str = entry_date.strftime("%Y-%m-%d")
+    for horizon_label, days in [("1d", 1), ("3d", 3), ("5d", 5), ("10d", 10)]:
+        existing = trade.get(f"price_{horizon_label}")
+        if not existing:
+            price = _price_n_days_later(symbol, entry_str, days)
+            if price:
+                prices[f"price_{horizon_label}"] = price
+    if prices:
+        update_paper_trade_prices(trade["id"], prices)
+
+
+def _simple_refresh_single(trade: dict) -> dict | None:
+    """Fallback: horizon-based refresh for trades without strategy params."""
+    symbol = normalize_ticker(trade["ticker"])
+    try:
+        entry = datetime.strptime(trade["entry_date"], "%Y-%m-%d").date()
+        today = date.today()
+        days_since = (today - entry).days
+    except Exception:
+        return None
+
+    prices = {}
+    entry_str = entry.strftime("%Y-%m-%d")
+    for horizon_label, days in [("1d", 1), ("3d", 3), ("5d", 5), ("10d", 10)]:
+        if days_since >= days:
+            existing = trade.get(f"price_{horizon_label}")
+            if not existing:
+                price = _price_n_days_later(symbol, entry_str, days)
+                if price:
+                    prices[f"price_{horizon_label}"] = price
+
+    if prices:
+        update_paper_trade_prices(trade["id"], prices)
+
+    # Auto-expire after 10 days
+    if days_since > 10 and trade["status"] == "active":
+        update_paper_trade_status(trade["id"], "expired")
+
+    return {"trade_id": trade["id"], "ticker": trade["ticker"], "horizon_prices": prices}
+
+
 def refresh_paper_trade_prices(trade_id: int = None) -> dict:
-    """Refresh prices for all active paper trades (or one specific)."""
+    """Refresh all active paper trades — with strategy simulation if stop_loss/targets set.
+
+    For trades WITH stop_loss/targets: simulates day-by-day OHLCV, checking if
+    the stop-loss was breached or target was hit.  Exits realistically based on
+    intraday high/low data and volume.
+
+    For trades WITHOUT strategy params: simple horizon-based price tracking (1d/3d/5d/10d).
+    """
     trades = list_paper_trades(status="active")
     if trade_id is not None:
         trades = [t for t in trades if t["id"] == trade_id]
 
-    updated_count = 0
+    simulated = []
+    simple_count = 0
+
     for trade in trades:
-        symbol = normalize_ticker(trade["ticker"])
-        entry_date = trade["entry_date"]
+        has_strategy = trade.get("stop_loss") or trade.get("target_1")
+        if has_strategy:
+            result = simulate_trade_single(trade["id"])
+            if result:
+                simulated.append(result)
+        else:
+            result = _simple_refresh_single(trade)
+            if result:
+                simple_count += 1
 
-        # Calculate days elapsed
-        try:
-            entry = datetime.strptime(entry_date, "%Y-%m-%d").date()
-            today = date.today()
-            days_since = (today - entry).days
-        except Exception:
-            continue
-
-        prices = {}
-        # Only fetch prices for horizons that have elapsed
-        for horizon_label, days in [("1d", 1), ("3d", 3), ("5d", 5), ("10d", 10)]:
-            if days_since >= days:
-                existing = trade.get(f"price_{horizon_label}")
-                if not existing:
-                    price = _price_n_days_later(symbol, entry_date, days)
-                    if price:
-                        prices[f"price_{horizon_label}"] = price
-
-        if prices:
-            update_paper_trade_prices(trade["id"], prices)
-            updated_count += 1
-
-        # Auto-expire after 10 days
-        if days_since > 10 and trade["status"] == "active":
-            update_paper_trade_status(trade["id"], "expired")
-
-    # Also refresh shadow trades so they stay in sync with paper trades.
-    # Best-effort, never raises.
+    # Refresh shadow trades
     shadow_result = None
     try:
         from backend.shadow_trades import refresh_shadow_prices
@@ -208,7 +409,8 @@ def refresh_paper_trade_prices(trade_id: int = None) -> dict:
 
     return {
         "ok": True,
-        "updated": updated_count,
+        "simulated": simulated,
+        "simple_updated": simple_count,
         "total_active": len(trades),
         "shadow": shadow_result,
     }

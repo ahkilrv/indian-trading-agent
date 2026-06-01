@@ -459,8 +459,9 @@ def add_paper_trade(data: dict) -> int:
         cursor = conn.execute(
             """INSERT INTO paper_trades
             (ticker, source, strategy, direction, signal, score, confidence,
-             success_probability, triggered_signals, entry_price, notes, regime_at_entry)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             success_probability, triggered_signals, entry_price, notes, regime_at_entry,
+             stop_loss, target_1, target_2, time_horizon)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("ticker"),
                 data.get("source", "manual"),
@@ -474,6 +475,10 @@ def add_paper_trade(data: dict) -> int:
                 data.get("entry_price"),
                 data.get("notes"),
                 regime_at_entry,
+                data.get("stop_loss"),
+                data.get("target_1"),
+                data.get("target_2"),
+                data.get("time_horizon"),
             ),
         )
         return cursor.lastrowid
@@ -487,7 +492,14 @@ def _migrate_paper_trades_columns():
             ("strategy", "TEXT"),
             ("confidence", "TEXT"),
             ("triggered_signals", "TEXT"),
-            ("regime_at_entry", "TEXT"),  # Market regime when trade was opened
+            ("regime_at_entry", "TEXT"),
+            ("stop_loss", "REAL"),
+            ("target_1", "REAL"),
+            ("target_2", "REAL"),
+            ("time_horizon", "TEXT"),
+            ("simulated_exit_price", "REAL"),
+            ("exit_reason", "TEXT"),
+            ("simulated_pnl_pct", "REAL"),
         ]:
             if col not in existing:
                 try:
@@ -567,6 +579,28 @@ def update_paper_trade_status(trade_id: int, status: str):
         conn.execute(
             "UPDATE paper_trades SET status = ?, updated_at = datetime('now') WHERE id = ?",
             (status, trade_id),
+        )
+
+
+def save_simulated_exit(trade_id: int, exit_price: float, pnl_pct: float, reason: str):
+    """Save the simulated exit result for a paper trade.
+
+    Only marks as expired if the exit was triggered by a strategy condition
+    (stop-loss, target, time horizon). 'held_to_present' means the trade
+    is still open in simulation — keep it active.
+    """
+    should_expire = reason != "held_to_present"
+    status = "expired" if should_expire else "active"
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE paper_trades SET
+                simulated_exit_price = ?,
+                simulated_pnl_pct = ?,
+                exit_reason = ?,
+                status = ?,
+                updated_at = datetime('now')
+               WHERE id = ?""",
+            (exit_price, pnl_pct, reason, status, trade_id),
         )
 
 
