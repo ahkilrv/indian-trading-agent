@@ -1,9 +1,13 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.analysts.schemas import (
     FundamentalsAnalysis,
     extract_and_validate,
 )
+
+logger = logging.getLogger(__name__)
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
@@ -82,7 +86,15 @@ def create_fundamentals_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
+        try:
+            result = chain.invoke(state["messages"])
+        except Exception as exc:
+            logger.error("[Fundamentals] FAILED: %s", exc)
+            return {
+                "messages": state["messages"],
+                "fundamentals_report": f"Fundamentals analysis failed: {exc}",
+                "fundamentals_analysis": None,
+            }
 
         report = ""
         fundamentals_analysis = None

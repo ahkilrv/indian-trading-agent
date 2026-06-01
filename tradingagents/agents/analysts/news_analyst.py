@@ -13,6 +13,9 @@ from tradingagents.agents.utils.agent_utils import (
     get_ticker_news,
 )
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 NEWS_SYSTEM_PROMPT = """\
 You are an expert Financial News Analyst for the Indian market. Your task is to process the provided recent news headlines and articles for the target ticker and output a **strict, valid JSON object** quantifying the market sentiment.
@@ -65,7 +68,15 @@ def create_news_analyst(llm):
         prompt = prompt.partial(instrument_context=instrument_context)
 
         chain = prompt | llm.bind_tools(tools)
-        result = chain.invoke(state["messages"])
+        try:
+            result = chain.invoke(state["messages"])
+        except Exception as exc:
+            logger.error("[News] FAILED: %s", exc)
+            return {
+                "messages": state["messages"],
+                "news_report": f"News analysis failed: {exc}",
+                "news_analysis": None,
+            }
 
         report = ""
         news_analysis = None

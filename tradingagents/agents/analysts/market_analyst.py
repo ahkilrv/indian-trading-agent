@@ -1,3 +1,5 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.analysts.schemas import (
@@ -10,6 +12,8 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
     get_stock_data,
 )
+
+logger = logging.getLogger(__name__)
 
 
 MARKET_SYSTEM_PROMPT = """\
@@ -48,8 +52,11 @@ After the JSON block you may optionally append a Markdown table.
 def create_market_analyst(llm):
 
     def market_analyst_node(state):
+        import time as _time
+        t0 = _time.time()
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
+        logger.info("[Market] START ticker=%s", ticker)
         instrument_context = build_instrument_context(ticker)
 
         tools = [
@@ -81,19 +88,31 @@ def create_market_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
+        try:
+            result = chain.invoke(state["messages"])
+            logger.info("[Market] LLM call completed (%.1fs)", _time.time() - t0)
+        except Exception as exc:
+            logger.error("[Market] FAILED after %.1fs: %s", _time.time() - t0, exc)
+            return {
+                "messages": state["messages"],
+                "market_report": f"Market analysis failed: {exc}",
+                "market_analysis": None,
+            }
 
         report = ""
         market_analysis = None
 
         if len(result.tool_calls) == 0:
             report = result.content
-            # Attempt structured extraction
             market_analysis = extract_and_validate(
                 report,
                 MarketAnalysis,
                 ticker=ticker,
             )
+
+        logger.info("[Market] DONE (%.1fs) ticker=%s verdict=%s",
+                    _time.time() - t0, ticker,
+                    market_analysis.get("technical_verdict") if market_analysis else "none")
 
         return {
             "messages": [result],

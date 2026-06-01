@@ -220,7 +220,7 @@ export const useAnalysisStore = create<AnalysisState>()(
       partialize: (state) => ({
         ticker: state.ticker,
         tradeDate: state.tradeDate,
-        status: state.status,
+        status: state.taskId ? state.status : "idle",  // don't persist "running" without a taskId
         reports: state.reports,
         debates: state.debates,
         riskDebates: state.riskDebates,

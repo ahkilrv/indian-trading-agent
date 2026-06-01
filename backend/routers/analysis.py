@@ -41,6 +41,13 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
     def _should_stop() -> bool:
         return bool(_tasks.get(task_id, {}).get("stopped", False))
 
+    def _safe_send(event: dict):
+        """Send a WS event without crashing the thread if the client disconnects."""
+        try:
+            loop.run_until_complete(manager.send_event(task_id, event))
+        except Exception as exc:
+            print(f"[Analysis {task_id}] WS send failed (continuing): {exc}", flush=True)
+
     try:
         ta = TradingAgentsGraph(
             selected_analysts=selected_analysts,
@@ -62,10 +69,10 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
             # Check stop signal
             if _should_stop():
                 print(f"[Analysis {task_id}] Stopped by user after {chunk_count} chunks", flush=True)
-                loop.run_until_complete(manager.send_event(task_id, {
+                _safe_send({
                     "type": "stopped",
                     "message": f"Analysis stopped after {chunk_count} chunks",
-                }))
+                })
                 _tasks[task_id]["status"] = "stopped"
                 break
             # Heartbeat — let frontend know we're still alive
@@ -82,11 +89,11 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
                 last_message = f"{msg_type}{tool_calls}: {content_preview}"
             print(f"[Analysis {task_id}] Chunk #{chunk_count} — {last_message}", flush=True)
 
-            loop.run_until_complete(manager.send_event(task_id, {
+            _safe_send({
                 "type": "heartbeat",
                 "chunk": chunk_count,
                 "last_activity": last_message[:120],
-            }))
+            })
 
             # Detect report updates
             for field in ["market_report", "sentiment_report", "news_report",
@@ -96,11 +103,11 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
                 if val and val != prev_reports.get(field):
                     prev_reports[field] = val
                     print(f"[Analysis {task_id}] Report completed: {field}", flush=True)
-                    loop.run_until_complete(manager.send_event(task_id, {
+                    _safe_send({
                         "type": "report",
                         "section": field,
                         "content": val,
-                    }))
+                    })
 
             # Detect structured payload updates (Pydantic-validated JSON from each agent)
             structured_payloads = [
@@ -129,12 +136,12 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
                     else:
                         payload_dict = val
                     print(f"[Analysis {task_id}] Structured payload: {payload_field}", flush=True)
-                    loop.run_until_complete(manager.send_event(task_id, {
+                    _safe_send({
                         "type": "structured_payload",
                         "agent": agent,
                         "field": payload_field,
                         "data": payload_dict,
-                    }))
+                    })
 
             # Detect debate updates
             invest_state = chunk.get("investment_debate_state")
@@ -143,20 +150,20 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
                 bear = invest_state.get("bear_history", "")
                 if bull and bull != prev_reports.get("bull_history"):
                     prev_reports["bull_history"] = bull
-                    loop.run_until_complete(manager.send_event(task_id, {
+                    _safe_send({
                         "type": "debate", "side": "bull", "content": bull,
-                    }))
+                    })
                 if bear and bear != prev_reports.get("bear_history"):
                     prev_reports["bear_history"] = bear
-                    loop.run_until_complete(manager.send_event(task_id, {
+                    _safe_send({
                         "type": "debate", "side": "bear", "content": bear,
-                    }))
+                    })
                 judge = invest_state.get("judge_decision", "")
                 if judge and judge != prev_reports.get("judge_decision"):
                     prev_reports["judge_decision"] = judge
-                    loop.run_until_complete(manager.send_event(task_id, {
+                    _safe_send({
                         "type": "report", "section": "investment_plan", "content": judge,
-                    }))
+                    })
 
             # Detect risk debate updates
             risk_state = chunk.get("risk_debate_state")
@@ -166,9 +173,9 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
                     val = risk_state.get(key, "")
                     if val and val != prev_reports.get(f"risk_{key}"):
                         prev_reports[f"risk_{key}"] = val
-                        loop.run_until_complete(manager.send_event(task_id, {
+                        _safe_send({
                             "type": "risk_debate", "side": side, "content": val,
-                        }))
+                        })
 
         # Get final state
         final_state = chunk  # Last chunk is the final state
@@ -178,17 +185,17 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
         stats_summary = stats.summary()
 
         # Send final events
-        loop.run_until_complete(manager.send_event(task_id, {
+        _safe_send({
             "type": "signal", "decision": signal, "ticker": ticker,
-        }))
-        loop.run_until_complete(manager.send_event(task_id, {
+        })
+        _safe_send({
             "type": "stats", **stats_summary,
-        }))
-        loop.run_until_complete(manager.send_event(task_id, {
+        })
+        _safe_send({
             "type": "complete",
             "duration_seconds": round(duration, 1),
             "stats": stats_summary,
-        }))
+        })
 
         # Save to DB
         invest_state = final_state.get("investment_debate_state", {})
@@ -235,9 +242,9 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
     except Exception as e:
         _tasks[task_id]["status"] = "error"
         _tasks[task_id]["error"] = str(e)
-        loop.run_until_complete(manager.send_event(task_id, {
+        _safe_send({
             "type": "error", "message": str(e),
-        }))
+        })
     finally:
         loop.close()
 
@@ -315,6 +322,20 @@ def stop_analysis(task_id: str):
     _tasks[task_id]["stopped"] = True
     _tasks[task_id]["status"] = "stopping"
     return {"ok": True, "task_id": task_id, "message": "Stop signal sent"}
+
+
+@router.get("/debug/status")
+def debug_status():
+    """Show all in-memory task states — useful for debugging hung analyses."""
+    tasks = []
+    for task_id, task in list(_tasks.items()):
+        tasks.append({
+            "task_id": task_id,
+            "status": task.get("status"),
+            "ticker": task.get("ticker"),
+            "stopped": task.get("stopped", False),
+        })
+    return {"total_tasks": len(tasks), "tasks": tasks}
 
 
 class PnLUpdate(PydanticBaseModel):

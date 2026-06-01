@@ -79,7 +79,15 @@ def create_social_media_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
+        try:
+            result = chain.invoke(state["messages"])
+        except Exception as exc:
+            logger.error("[Social] FAILED: %s", exc)
+            return {
+                "messages": state["messages"],
+                "sentiment_report": f"Social sentiment analysis failed: {exc}",
+                "social_sentiment": None,
+            }
 
         report = ""
         social_sentiment = None
