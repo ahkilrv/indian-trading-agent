@@ -53,12 +53,13 @@ const VerdictBadge = ({ verdict }: { verdict: string | undefined }) => {
   );
 };
 
-const PriceRow = ({ label, value }: { label: string; value: number | undefined }) => {
+const PriceRow = ({ label, value }: { label: string; value: number | string | undefined }) => {
   if (value === undefined || value === null) return null;
+  const display = typeof value === "number" ? `₹${value.toFixed(2)}` : `${value}`;
   return (
     <div className="flex justify-between text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono font-medium">₹{value.toFixed(2)}</span>
+      <span className="font-mono font-medium">{display}</span>
     </div>
   );
 };
