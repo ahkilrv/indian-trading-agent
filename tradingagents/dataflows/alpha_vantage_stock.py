@@ -1,5 +1,8 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from .alpha_vantage_common import _make_api_request, _filter_csv_by_date_range
+
+IST = ZoneInfo("Asia/Kolkata")
 
 def get_stock(
     symbol: str,
@@ -20,7 +23,7 @@ def get_stock(
     """
     # Parse dates to determine the range
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    today = datetime.now()
+    today = datetime.now(IST)
 
     # Choose outputsize based on whether the requested range is within the latest 100 days
     # Compact returns latest 100 data points, so check if start_date is recent enough

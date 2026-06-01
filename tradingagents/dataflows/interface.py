@@ -31,6 +31,9 @@ from .nse_data import (
     get_delivery_percentage,
 )
 
+# Import Fyers API data functions
+from .fyers_data import get_fyers_stock_data, get_fyers_indicators
+
 # Configuration and routing logic
 from .config import get_config
 
@@ -79,6 +82,7 @@ VENDOR_LIST = [
     "yfinance",
     "alpha_vantage",
     "nse",
+    "fyers",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -87,11 +91,13 @@ VENDOR_METHODS = {
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
+        "fyers": get_fyers_stock_data,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
+        "fyers": get_fyers_indicators,
     },
     # fundamental_data
     "get_fundamentals": {

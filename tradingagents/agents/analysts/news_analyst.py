@@ -1,28 +1,53 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+from tradingagents.agents.analysts.schemas import (
+    NewsAnalysis,
+    extract_and_validate,
+)
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_global_news,
     get_language_instruction,
     get_news,
 )
-from tradingagents.dataflows.config import get_config
+
+
+NEWS_SYSTEM_PROMPT = """\
+You are an expert Financial News Analyst. Your task is to process the provided recent news headlines and articles for the target ticker and output a **strict, valid JSON object** quantifying the market sentiment.
+
+You must act as a precise information extraction engine. Only consider the provided text. Do **not** provide conversational filler, introductions, or markdown formatting outside of the JSON block.
+
+Evaluation Criteria:
+- Determine if the news contains fundamental catalysts (e.g., earnings beats, leadership changes, regulatory approvals).
+- Score the overall sentiment objectively.
+- Identify the single most impactful news driver.
+
+Output Schema Requirement:
+```json
+{
+  "ticker": "<String>",
+  "sentiment_score": "<Float between -1.0 (extreme negative) to 1.0 (extreme positive)>",
+  "catalyst_identified": "<Boolean>",
+  "primary_driver": "<String: 1-sentence summary of the most impactful news item>",
+  "driver_source": "<String: Exact substring quote from the provided text verifying the primary driver>",
+  "news_verdict": "<String: 'BULLISH' | 'BEARISH' | 'NEUTRAL'>"
+}
+```
+
+After the JSON block you may optionally append a Markdown table summarizing key news items for human readability.
+"""
 
 
 def create_news_analyst(llm):
     def news_analyst_node(state):
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
 
         tools = [
             get_news,
             get_global_news,
         ]
-
-        system_message = (
-            "You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(query, start_date, end_date) for company-specific or targeted news searches, and get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_language_instruction()
-        )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -41,7 +66,7 @@ def create_news_analyst(llm):
             ]
         )
 
-        prompt = prompt.partial(system_message=system_message)
+        prompt = prompt.partial(system_message=NEWS_SYSTEM_PROMPT)
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
@@ -50,13 +75,21 @@ def create_news_analyst(llm):
         result = chain.invoke(state["messages"])
 
         report = ""
+        news_analysis = None
 
         if len(result.tool_calls) == 0:
             report = result.content
+            # Attempt structured extraction
+            news_analysis = extract_and_validate(
+                report,
+                NewsAnalysis,
+                ticker=ticker,
+            )
 
         return {
             "messages": [result],
             "news_report": report,
+            "news_analysis": news_analysis,
         }
 
     return news_analyst_node

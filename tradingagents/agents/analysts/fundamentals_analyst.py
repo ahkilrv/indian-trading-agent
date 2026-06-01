@@ -1,4 +1,9 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+from tradingagents.agents.analysts.schemas import (
+    FundamentalsAnalysis,
+    extract_and_validate,
+)
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
@@ -8,13 +13,39 @@ from tradingagents.agents.utils.agent_utils import (
     get_insider_transactions,
     get_language_instruction,
 )
-from tradingagents.dataflows.config import get_config
+
+
+FUNDAMENTALS_SYSTEM_PROMPT = """\
+You are an expert Fundamental Analyst for the Indian stock market. Your task is to evaluate the provided financial statements and corporate metrics and output a **strict, valid JSON object**.
+
+You must analyze the data objectively. Do **not** provide conversational filler, introductions, or markdown formatting outside of the JSON block.
+
+Evaluation Criteria:
+- Assess valuation (e.g., P/E relative to sector averages).
+- Evaluate balance sheet health (e.g., Debt-to-Equity).
+- Identify growth trajectories (e.g., EPS YoY growth).
+
+Output Schema Requirement:
+```json
+{
+  "ticker": "<String>",
+  "valuation_score": "<Float between 1.0 (extremely undervalued) and 10.0 (extremely overvalued)>",
+  "health_status": "<String: 'Robust' | 'Stable' | 'Vulnerable' | 'Distressed'>",
+  "primary_strength": "<String: 1-sentence description referencing a specific metric>",
+  "primary_weakness": "<String: 1-sentence description referencing a specific metric>",
+  "overall_fundamental_verdict": "<String: 'BULLISH' | 'BEARISH' | 'NEUTRAL'>"
+}
+```
+
+After the JSON block you may optionally append a Markdown table summarizing key financial metrics for human readability.
+"""
 
 
 def create_fundamentals_analyst(llm):
     def fundamentals_analyst_node(state):
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
 
         tools = [
             get_fundamentals,
@@ -22,13 +53,6 @@ def create_fundamentals_analyst(llm):
             get_cashflow,
             get_income_statement,
         ]
-
-        system_message = (
-            "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
-            + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
-            + get_language_instruction(),
-        )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -47,7 +71,7 @@ def create_fundamentals_analyst(llm):
             ]
         )
 
-        prompt = prompt.partial(system_message=system_message)
+        prompt = prompt.partial(system_message=FUNDAMENTALS_SYSTEM_PROMPT)
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
@@ -57,13 +81,21 @@ def create_fundamentals_analyst(llm):
         result = chain.invoke(state["messages"])
 
         report = ""
+        fundamentals_analysis = None
 
         if len(result.tool_calls) == 0:
             report = result.content
+            # Attempt structured extraction
+            fundamentals_analysis = extract_and_validate(
+                report,
+                FundamentalsAnalysis,
+                ticker=ticker,
+            )
 
         return {
             "messages": [result],
             "fundamentals_report": report,
+            "fundamentals_analysis": fundamentals_analysis,
         }
 
     return fundamentals_analyst_node

@@ -3,7 +3,10 @@
 from fastapi import APIRouter, Query
 import yfinance as yf
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from tradingagents.utils.ticker import normalize_ticker
+
+IST = ZoneInfo("Asia/Kolkata")
 
 router = APIRouter(prefix="/api/market-data", tags=["market-data"])
 
@@ -89,7 +92,7 @@ def get_indicators(
     from tradingagents.dataflows.interface import route_to_vendor
 
     symbol = normalize_ticker(ticker)
-    end_date = datetime.now().strftime("%Y-%m-%d")
+    end_date = datetime.now(IST).strftime("%Y-%m-%d")
 
     results = {}
     for indicator in indicators.split(","):

@@ -47,7 +47,7 @@ function AnalysisPageInner() {
   // Local input state (pre-filled from URL or last analysis ticker)
   const [tickerInput, setTickerInput] = useState(defaultTicker || analysis.ticker || "");
   const [tradeDateInput, setTradeDateInput] = useState(
-    analysis.tradeDate || new Date().toISOString().split("T")[0]
+    analysis.tradeDate || new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
   );
 
   // Analysis options
