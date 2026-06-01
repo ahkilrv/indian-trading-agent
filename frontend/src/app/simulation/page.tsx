@@ -46,7 +46,7 @@ const simulationHelp = [
   },
   {
     question: "How to open a paper trade?",
-    answer: "Three ways:\n\n1. From Top Picks (/recommendations) \u2014 click \"Track\" on any recommendation. Auto-fills signal/score/direction.\n2. From Dashboard Top Picks \u2014 same \"Track\" button on each pick.\n3. Manually from this page \u2014 enter any ticker + optional notes.\n\nEntry price = current market price when you click. The trade becomes \"active\" and prices are fetched automatically each day.",
+    answer: "Three ways:\n\n1. From Top Picks (/recommendations) — click \"Track\" on any recommendation. Auto-fills signal/score/direction.\n2. From Dashboard Top Picks — same \"Track\" button on each pick.\n3. Manually from this page — enter any ticker + optional notes.\n\nEntry price = current market price when you click. The trade simulates day-by-day using historical OHLCV data:\n- Checks if stop-loss was breached (using intraday low/high)\n- Checks if target was hit\n- Accounts for volume to ensure realistic execution\n- Reports final exit price and reason",
   },
   {
     question: "What's a \"historical backtest\"?",
@@ -91,7 +91,8 @@ function PaperTradeRow({ t, onClose, onDelete }: { t: any; onClose: (id: number)
   const [expanded, setExpanded] = useState(false);
   const src = sourceConfig[t.source] || sourceConfig.manual;
   const SrcIcon = src.icon;
-  const hasDetails = (t.triggered_signals && Array.isArray(t.triggered_signals) && t.triggered_signals.length > 0) || t.notes || t.strategy;
+  const hasDetails = (t.triggered_signals && Array.isArray(t.triggered_signals) && t.triggered_signals.length > 0) || t.notes || t.strategy || t.stop_loss || t.target_1;
+  const hasSimulated = t.simulated_exit_price != null;
 
   return (
     <>
@@ -124,10 +125,25 @@ function PaperTradeRow({ t, onClose, onDelete }: { t: any; onClose: (id: number)
         <TableCell className="text-right text-sm"><PnLCell value={t.pnl_3d_pct} /></TableCell>
         <TableCell className="text-right text-sm"><PnLCell value={t.pnl_5d_pct} /></TableCell>
         <TableCell className="text-right text-sm"><PnLCell value={t.pnl_10d_pct} /></TableCell>
+        <TableCell className="text-right text-xs">
+          {hasSimulated ? (
+            <span className="font-mono">Rs.{t.simulated_exit_price}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </TableCell>
+        <TableCell className="text-right text-sm">
+          {hasSimulated ? <PnLCell value={t.simulated_pnl_pct} /> : <span className="text-muted-foreground text-xs">—</span>}
+        </TableCell>
         <TableCell>
           <Badge variant="outline" className="text-xs">
             {t.status}
           </Badge>
+          {hasSimulated && (
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              {t.exit_reason?.replace(/_/g, " ") || "Simulated"}
+            </div>
+          )}
         </TableCell>
         <TableCell>
           <div className="flex gap-1">
@@ -161,6 +177,44 @@ function PaperTradeRow({ t, onClose, onDelete }: { t: any; onClose: (id: number)
                   {t.success_probability != null && (
                     <span className="ml-3 text-muted-foreground">Est. success: <span className="font-semibold text-foreground">{t.success_probability}%</span></span>
                   )}
+                </div>
+              )}
+              {(t.stop_loss || t.target_1) && (
+                <div className="flex gap-4 text-xs p-2 bg-muted/50 rounded">
+                  {t.stop_loss && (
+                    <div>
+                      <span className="text-muted-foreground">Stop Loss: </span>
+                      <span className="font-mono font-semibold text-red-600">₹{t.stop_loss}</span>
+                    </div>
+                  )}
+                  {t.target_1 && (
+                    <div>
+                      <span className="text-muted-foreground">Target 1: </span>
+                      <span className="font-mono font-semibold text-green-600">₹{t.target_1}</span>
+                    </div>
+                  )}
+                  {t.target_2 && (
+                    <div>
+                      <span className="text-muted-foreground">Target 2: </span>
+                      <span className="font-mono font-semibold text-green-700">₹{t.target_2}</span>
+                    </div>
+                  )}
+                  {t.time_horizon && (
+                    <div>
+                      <span className="text-muted-foreground">Horizon: </span>
+                      <span className="font-semibold">{t.time_horizon.replace(/_/g, " ")}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {hasSimulated && (
+                <div className="p-2 rounded text-xs bg-blue-50 text-blue-800">
+                  <strong>Simulation Result:</strong>{" "}
+                  Exited at <span className="font-mono">₹{t.simulated_exit_price}</span>{" "}
+                  with P&L <span className={`font-semibold ${(t.simulated_pnl_pct || 0) >= 0 ? "text-green-700" : "text-red-700"}`}>
+                    {(t.simulated_pnl_pct || 0) >= 0 ? "+" : ""}{t.simulated_pnl_pct}%
+                  </span>.{" "}
+                  <span className="text-muted-foreground">Reason: {t.exit_reason?.replace(/_/g, " ") || "—"}</span>
                 </div>
               )}
               {t.triggered_signals && t.triggered_signals.length > 0 && (
@@ -249,7 +303,13 @@ export default function SimulationPage() {
     setRefreshing(true);
     try {
       const r: any = await refreshPaperTrades();
-      toast.success(`Refreshed ${r.updated} trades`);
+      const sim = r.simulated?.length || 0;
+      const simple = r.simple_updated || 0;
+      const msgs = [];
+      if (sim > 0) msgs.push(`${sim} strategy-simulated`);
+      if (simple > 0) msgs.push(`${simple} price-updated`);
+      if (msgs.length) toast.success(`Refreshed: ${msgs.join(", ")}`);
+      else toast.info("No trades to update");
       await loadPaperData();
     } catch (e: any) {
       toast.error(e.message || "Refresh failed");
@@ -485,6 +545,8 @@ export default function SimulationPage() {
                       <TableHead className="text-right">+3d</TableHead>
                       <TableHead className="text-right">+5d</TableHead>
                       <TableHead className="text-right">+10d</TableHead>
+                      <TableHead className="text-right">Exit</TableHead>
+                      <TableHead className="text-right">Sim P&L</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead></TableHead>
                     </TableRow>

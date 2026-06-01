@@ -1,66 +1,61 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+from tradingagents.agents.analysts.schemas import (
+    MarketAnalysis,
+    extract_and_validate,
+)
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_indicators,
     get_language_instruction,
     get_stock_data,
 )
-from tradingagents.dataflows.config import get_config
+
+
+MARKET_SYSTEM_PROMPT = """\
+You are an expert Quantitative Market Analyst specializing in the NSE. Your task is to process the provided OHLCV price action, moving averages, momentum oscillators (RSI, MACD), Bollinger Bands, and institutional flow data, then output the analysis as a **strict, valid JSON object**.
+
+CRITICAL RULES — Follow exactly:
+1. Base every conclusion on specific values from the provided data. If a data point is not in the feed, do NOT invent it.
+2. TREND CLASSIFICATION (deterministic):
+   - STRONG_UPTREND: Price > 50 SMA > 200 SMA AND RSI > 50
+   - WEAK_UPTREND: Price > 50 SMA but RSI between 40-50
+   - RANGE_BOUND: Price between SMA 50 and SMA 200 with <5% spread
+   - WEAK_DOWNTREND: Price < 50 SMA but RSI between 50-60
+   - STRONG_DOWNTREND: Price < 50 SMA < 200 SMA AND RSI < 50
+3. SUPPORT/RESISTANCE: Identify at least 2 support levels and at least 2 resistance levels. Use Bollinger bands (lower=first support, upper=first resistance), recent swing lows/highs, and moving averages (20 SMA, 50 SMA, 200 SMA). List from CLOSEST to furthest from current price. Report EXACT numbers. Example: `[2820, 2750, 2680]` where 2820 is the nearest support (just below price). Report as a JSON list of floats.
+4. MOMENTUM STATE: RSI > 70 = OVERBOUGHT, RSI < 30 = OVERSOLD, else NEUTRAL. For MACD: histogram declining = weakening momentum even if RSI is neutral.
+5. INSTITUTIONAL FLOW: Find volume data in the provided feed. If volume on up-days > volume on down-days by 50%+ → FII_BULLISH. If volume spikes >2x the 20-day average AND price drops → distribution / BEARISH. Always cite the specific volume values (e.g., "Volume: 12M vs 20d avg 5M") that inform your decision. If cumulative FII/DII data is available in the feed, prioritise that over inferred volume analysis.
+6. CONFLICT RESOLUTION: When indicators disagree, priority order is: (1) Volume-confirmed breakout > (2) RSI divergence > (3) Moving average crossovers.
+7. VERDICT: Synthesize ALL above. Do not default to NEUTRAL. If 3+ signals point one way, commit to BULLISH or BEARISH.
+
+OUTPUT SCHEMA — use EXACTLY these field names. Do NOT rename, add, or omit any fields:
+{
+  "ticker": "<String>",
+  "current_trend": "<String: 'STRONG_UPTREND' | 'WEAK_UPTREND' | 'RANGE_BOUND' | 'WEAK_DOWNTREND' | 'STRONG_DOWNTREND'>",
+  "key_support": [<Float>, <Float>, ...],
+  "key_resistance": [<Float>, <Float>, ...],
+  "momentum_state": "<String: 'OVERSOLD' | 'OVERBOUGHT' | 'NEUTRAL'>",
+  "institutional_flow_bias": "<String: 'FII_BULLISH' | 'DII_BULLISH' | 'MIXED' | 'BEARISH'>",
+  "technical_verdict": "<String: 'BULLISH' | 'BEARISH' | 'NEUTRAL'>"
+}
+
+Do NOT provide conversational filler, introductions, or markdown outside of the JSON block.
+After the JSON block you may optionally append a Markdown table.
+"""
 
 
 def create_market_analyst(llm):
 
     def market_analyst_node(state):
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
 
         tools = [
             get_stock_data,
             get_indicators,
         ]
-
-        system_message = (
-            """You are a short-term trading analyst specializing in the **Indian stock market (NSE/BSE)**. Your role is to analyze technical indicators for short-term trading decisions (intraday to 1-week horizon). Select up to **8 indicators** that are most relevant for short-term momentum and swing trading. Categories and indicators:
-
-Moving Averages:
-- close_50_sma: 50 SMA: Medium-term trend. For short-term: acts as dynamic support/resistance. Price above 50 SMA = bullish bias.
-- close_200_sma: 200 SMA: Long-term trend benchmark. Useful to confirm overall trend context even for short-term trades.
-- close_10_ema: 10 EMA: **Critical for short-term trading.** Captures quick momentum shifts, ideal for swing entry/exit signals.
-
-MACD Related:
-- macd: MACD: Momentum via EMA differences. Short-term: look for crossovers on daily charts for 2-5 day swing signals.
-- macds: MACD Signal: EMA smoothing of MACD. Crossovers with MACD line trigger short-term trades.
-- macdh: MACD Histogram: Momentum strength. Histogram expansion = trend acceleration, contraction = potential reversal.
-
-Momentum Indicators:
-- rsi: RSI: Overbought (>70) / Oversold (<30). For short-term: use 60/40 levels in trending markets for pullback entries.
-
-Volatility Indicators:
-- boll: Bollinger Middle: 20 SMA basis for Bollinger Bands.
-- boll_ub: Bollinger Upper Band: Overbought/breakout zone. Price riding upper band = strong momentum.
-- boll_lb: Bollinger Lower Band: Oversold/reversal zone.
-- atr: ATR: **Essential for stop-loss placement.** Use 1.5x-2x ATR for short-term stop-loss levels.
-
-Volume-Based Indicators:
-- vwma: VWMA: Volume-weighted average. Price above VWMA = buying pressure. Critical for confirming breakouts in Indian markets.
-
-**SHORT-TERM TRADING FOCUS (Indian Market):**
-- Prioritize: 10 EMA, RSI, MACD, ATR, VWMA for short-term signals
-- Identify **key support/resistance levels** from recent price action
-- Note **gap ups/gap downs** from previous close (common in Indian markets due to global cues)
-- Check for **volume spikes** — high volume breakouts in NSE stocks are strong signals
-- Consider the broader NIFTY/BANKNIFTY trend for sector-level context
-- Use a **5-15 day lookback** for short-term pattern identification
-
-When making tool calls, use exact indicator names above. Call get_stock_data first, then get_indicators. Write a detailed report with:
-1. Current trend direction and strength
-2. Key support and resistance levels
-3. Entry zones and stop-loss levels (using ATR)
-4. Short-term momentum signals
-5. Volume analysis"""
-            + """ Append a Markdown table summarizing: Indicator | Value | Signal (Bullish/Bearish/Neutral) | Action Implication."""
-            + get_language_instruction()
-        )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -79,7 +74,7 @@ When making tool calls, use exact indicator names above. Call get_stock_data fir
             ]
         )
 
-        prompt = prompt.partial(system_message=system_message)
+        prompt = prompt.partial(system_message=MARKET_SYSTEM_PROMPT)
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
@@ -89,13 +84,21 @@ When making tool calls, use exact indicator names above. Call get_stock_data fir
         result = chain.invoke(state["messages"])
 
         report = ""
+        market_analysis = None
 
         if len(result.tool_calls) == 0:
             report = result.content
+            # Attempt structured extraction
+            market_analysis = extract_and_validate(
+                report,
+                MarketAnalysis,
+                ticker=ticker,
+            )
 
         return {
             "messages": [result],
             "market_report": report,
+            "market_analysis": market_analysis,
         }
 
     return market_analyst_node

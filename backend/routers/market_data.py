@@ -3,9 +3,30 @@
 from fastapi import APIRouter, Query
 import yfinance as yf
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from tradingagents.utils.ticker import normalize_ticker
 
+IST = ZoneInfo("Asia/Kolkata")
+
 router = APIRouter(prefix="/api/market-data", tags=["market-data"])
+
+
+def _stock_source() -> str:
+    """Return human-readable stock data source label."""
+    try:
+        from tradingagents.dataflows.interface import get_data_source_label
+        return get_data_source_label("get_stock_data")
+    except Exception:
+        return "Yahoo Finance"
+
+
+def _indicator_source() -> str:
+    """Return human-readable indicator data source label."""
+    try:
+        from tradingagents.dataflows.interface import get_data_source_label
+        return get_data_source_label("get_indicators")
+    except Exception:
+        return "Yahoo Finance"
 
 
 @router.get("/search")
@@ -24,7 +45,7 @@ def get_quote(ticker: str):
 
     hist = t.history(period="2d")
     if hist.empty:
-        return {"error": f"No data found for {symbol}"}
+        return {"error": f"No data found for {symbol}", "data_source": _stock_source()}
 
     current = hist.iloc[-1]
     prev_close = info.get("previousClose") or (hist.iloc[-2]["Close"] if len(hist) > 1 else current["Close"])
@@ -47,6 +68,7 @@ def get_quote(ticker: str):
         "pe_ratio": info.get("trailingPE"),
         "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
         "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+        "data_source": _stock_source(),
     }
 
 
@@ -62,7 +84,7 @@ def get_chart_data(
     hist = t.history(period=period, interval=interval)
 
     if hist.empty:
-        return {"error": f"No data for {symbol}", "data": []}
+        return {"error": f"No data for {symbol}", "data": [], "data_source": _stock_source()}
 
     data = []
     for idx, row in hist.iterrows():
@@ -76,7 +98,13 @@ def get_chart_data(
             "volume": int(row["Volume"]),
         })
 
-    return {"ticker": symbol, "period": period, "interval": interval, "data": data}
+    return {
+        "ticker": symbol,
+        "period": period,
+        "interval": interval,
+        "data": data,
+        "data_source": _stock_source(),
+    }
 
 
 @router.get("/indicators/{ticker}")
@@ -89,7 +117,7 @@ def get_indicators(
     from tradingagents.dataflows.interface import route_to_vendor
 
     symbol = normalize_ticker(ticker)
-    end_date = datetime.now().strftime("%Y-%m-%d")
+    end_date = datetime.now(IST).strftime("%Y-%m-%d")
 
     results = {}
     for indicator in indicators.split(","):
@@ -100,7 +128,11 @@ def get_indicators(
         except Exception as e:
             results[indicator] = f"Error: {str(e)}"
 
-    return {"ticker": symbol, "indicators": results}
+    return {
+        "ticker": symbol,
+        "indicators": results,
+        "data_source": _indicator_source(),
+    }
 
 
 @router.get("/fundamentals/{ticker}")
@@ -129,6 +161,7 @@ def get_fundamentals(ticker: str):
         "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
         "avg_volume": info.get("averageVolume"),
         "beta": info.get("beta"),
+        "data_source": _stock_source(),
     }
 
 
@@ -191,4 +224,5 @@ def get_market_status():
         "is_trading_day": is_trading_day(),
         "nifty": extract_quote(nifty_hist, nifty),
         "banknifty": extract_quote(banknifty_hist, banknifty),
+        "data_source": _stock_source(),
     }

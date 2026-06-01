@@ -63,17 +63,19 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Grok 4.1 Fast (Non-Reasoning) - Speed optimized, 2M ctx", "grok-4-1-fast-non-reasoning"),
         ],
     },
-    "deepseek": {
-        "quick": [
-            ("DeepSeek V3.2", "deepseek-chat"),
-            ("Custom model ID", "custom"),
-        ],
-        "deep": [
-            ("DeepSeek V3.2 (thinking)", "deepseek-reasoner"),
-            ("DeepSeek V3.2", "deepseek-chat"),
-            ("Custom model ID", "custom"),
-        ],
-    },
+     "deepseek": {
+         "quick": [
+             ("DeepSeek V4 Flash - Fast, cost-optimized", "deepseek-v4-flash"),
+             ("DeepSeek V3.2", "deepseek-chat"),
+             ("Custom model ID", "custom"),
+         ],
+         "deep": [
+             ("DeepSeek V4 Pro - Most capable, deep reasoning", "deepseek-v4-pro"),
+             ("DeepSeek V3.2 (thinking)", "deepseek-reasoner"),
+             ("DeepSeek V3.2", "deepseek-chat"),
+             ("Custom model ID", "custom"),
+         ],
+     },
     "qwen": {
         "quick": [
             ("Qwen 3.5 Flash", "qwen3.5-flash"),

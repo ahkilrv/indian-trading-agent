@@ -1,4 +1,9 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+from tradingagents.agents.analysts.schemas import (
+    FundamentalsAnalysis,
+    extract_and_validate,
+)
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
@@ -8,13 +13,43 @@ from tradingagents.agents.utils.agent_utils import (
     get_insider_transactions,
     get_language_instruction,
 )
-from tradingagents.dataflows.config import get_config
+
+
+FUNDAMENTALS_SYSTEM_PROMPT = """\
+You are an expert Fundamental Analyst for the Indian stock market. Your task is to evaluate the provided financial statements and corporate metrics, then output a **strict, valid JSON object**.
+
+CRITICAL RULES:
+1. Base every conclusion on specific numeric metrics from the provided data. Reference exact values.
+2. VALUATION SCORE (integer 1-10, whole numbers only — do NOT use decimals): 1 = deeply undervalued, 10 = extremely overvalued. Must be SECTOR-RELATIVE. State the sector benchmark: e.g., "PE 18 vs IT sector avg 24 → undervalued." For Indian stocks, also check: P/B < 3 for financials, EV/EBITDA < 15 for industrials. Round to nearest whole number.
+3. HEALTH STATUS (deterministic):
+   - Robust: Debt/Equity < 1.0 AND Current Ratio > 1.5 AND positive FCF
+   - Stable: Debt/Equity < 2.0 AND Current Ratio > 1.0
+   - Vulnerable: Debt/Equity > 2.0 OR Current Ratio < 1.0 OR negative EPS
+   - Distressed: Debt/Equity > 3.0 AND negative FCF AND negative EPS
+4. INDIAN-SPECIFIC CHECKS: If promoter holding % is available, note concentrated (>50%) or diluted (<30%) ownership. High promoter holding = alignment, low = governance risk. Note delivery % if available — high delivery = genuine buying interest.
+5. STRENGTH/WEAKNESS: Each must reference a SPECIFIC metric with its value. Example: "Revenue grew 12% YoY to ₹15,200Cr" NOT "Good revenue growth."
+6. VERDICT: Do not default to NEUTRAL. If at least 2 of 3 (valuation, balance sheet, growth) point one direction, commit to BULLISH or BEARISH.
+
+OUTPUT SCHEMA — use EXACTLY these field names. Do NOT rename, add, or omit any fields:
+{
+  "ticker": "<String>",
+  "valuation_score": "<Integer 1-10 — whole number only>",
+  "health_status": "<String: 'Robust' | 'Stable' | 'Vulnerable' | 'Distressed'>",
+  "primary_strength": "<String: 1-sentence description referencing a specific metric>",
+  "primary_weakness": "<String: 1-sentence description referencing a specific metric>",
+  "overall_fundamental_verdict": "<String: 'BULLISH' | 'BEARISH' | 'NEUTRAL'>"
+}
+
+Do NOT provide conversational filler, introductions, or markdown outside of the JSON block.
+After the JSON block you may optionally append a Markdown table.
+"""
 
 
 def create_fundamentals_analyst(llm):
     def fundamentals_analyst_node(state):
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
 
         tools = [
             get_fundamentals,
@@ -22,13 +57,6 @@ def create_fundamentals_analyst(llm):
             get_cashflow,
             get_income_statement,
         ]
-
-        system_message = (
-            "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
-            + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
-            + get_language_instruction(),
-        )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -47,7 +75,7 @@ def create_fundamentals_analyst(llm):
             ]
         )
 
-        prompt = prompt.partial(system_message=system_message)
+        prompt = prompt.partial(system_message=FUNDAMENTALS_SYSTEM_PROMPT)
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
@@ -57,13 +85,21 @@ def create_fundamentals_analyst(llm):
         result = chain.invoke(state["messages"])
 
         report = ""
+        fundamentals_analysis = None
 
         if len(result.tool_calls) == 0:
             report = result.content
+            # Attempt structured extraction
+            fundamentals_analysis = extract_and_validate(
+                report,
+                FundamentalsAnalysis,
+                ticker=ticker,
+            )
 
         return {
             "messages": [result],
             "fundamentals_report": report,
+            "fundamentals_analysis": fundamentals_analysis,
         }
 
     return fundamentals_analyst_node

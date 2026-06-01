@@ -30,6 +30,11 @@ class OpenTradeRequest(BaseModel):
     success_probability: int | None = None
     triggered_signals: list[dict] | None = None
     notes: str | None = None
+    # Strategy parameters for exit simulation
+    stop_loss: float | None = None
+    target_1: float | None = None
+    target_2: float | None = None
+    time_horizon: str | None = None
 
 
 @router.post("/paper-trade")
@@ -45,6 +50,10 @@ def open_trade(req: OpenTradeRequest):
         success_probability=req.success_probability,
         triggered_signals=req.triggered_signals,
         notes=req.notes,
+        stop_loss=req.stop_loss,
+        target_1=req.target_1,
+        target_2=req.target_2,
+        time_horizon=req.time_horizon,
     )
 
 

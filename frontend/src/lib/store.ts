@@ -1,7 +1,8 @@
 "use client";
 
 import { create } from "zustand";
-import { runAnalysis, connectAnalysisWS } from "@/lib/api";
+import { persist } from "zustand/middleware";
+import { runAnalysis, stopAnalysis, connectAnalysisWS } from "@/lib/api";
 import type { WSEvent } from "@/lib/types";
 
 interface AnalysisOptions {
@@ -37,28 +38,33 @@ interface AnalysisState {
   heartbeat: string;
   lastUpdateAt: number;
   stats: AnalysisStats | null;
+  structuredPayloads: Record<string, any>;
 
   start: (ticker: string, tradeDate: string, options?: AnalysisOptions) => Promise<void>;
+  stop: () => Promise<void>;
   reset: () => void;
 }
 
-export const useAnalysisStore = create<AnalysisState>((set, get) => ({
-  taskId: null,
-  ticker: "",
-  tradeDate: "",
-  status: "idle",
-  reports: {},
-  debates: { bull: "", bear: "" },
-  riskDebates: { aggressive: "", conservative: "", neutral: "" },
-  signal: null,
-  error: null,
-  duration: null,
-  ws: null,
-  heartbeat: "",
-  lastUpdateAt: 0,
-  stats: null,
+export const useAnalysisStore = create<AnalysisState>()(
+  persist(
+    (set, get) => ({
+      taskId: null,
+      ticker: "",
+      tradeDate: "",
+      status: "idle",
+      reports: {},
+      debates: { bull: "", bear: "" },
+      riskDebates: { aggressive: "", conservative: "", neutral: "" },
+      signal: null,
+      error: null,
+      duration: null,
+      ws: null,
+      heartbeat: "",
+      lastUpdateAt: 0,
+      stats: null,
+      structuredPayloads: {},
 
-  start: async (ticker: string, tradeDate: string, options: AnalysisOptions = {}) => {
+      start: async (ticker: string, tradeDate: string, options: AnalysisOptions = {}) => {
     // Close existing WS if any
     const existingWs = get().ws;
     if (existingWs) {
@@ -80,6 +86,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
       heartbeat: "Initializing pipeline...",
       lastUpdateAt: Date.now(),
       stats: null,
+      structuredPayloads: {},
     });
 
     try {
@@ -126,6 +133,14 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
               lastUpdateAt: Date.now(),
             });
             break;
+          case "structured_payload":
+            if (event.agent && event.data) {
+              set({
+                structuredPayloads: { ...state.structuredPayloads, [event.agent]: event.data },
+                lastUpdateAt: Date.now(),
+              });
+            }
+            break;
           case "complete":
             ws.close();
             set({
@@ -151,6 +166,10 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
             ws.close();
             set({ status: "error", error: event.message ?? "Unknown error", ws: null });
             break;
+          case "stopped":
+            ws.close();
+            set({ status: "completed", ws: null, heartbeat: "Stopped by user" });
+            break;
         }
       });
 
@@ -160,26 +179,56 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     }
   },
 
-  reset: () => {
-    const ws = get().ws;
+  stop: async () => {
+    const { taskId, ws } = get();
+    if (!taskId) return;
+    try {
+      await stopAnalysis(taskId);
+    } catch {}
     if (ws) {
       try { ws.close(); } catch {}
     }
-    set({
-      taskId: null,
-      ticker: "",
-      tradeDate: "",
-      status: "idle",
-      reports: {},
-      debates: { bull: "", bear: "" },
-      riskDebates: { aggressive: "", conservative: "", neutral: "" },
-      signal: null,
-      error: null,
-      duration: null,
-      ws: null,
-      heartbeat: "",
-      lastUpdateAt: 0,
-      stats: null,
-    });
+    set({ status: "completed", ws: null, heartbeat: "Stopped by user" });
   },
-}));
+
+      reset: () => {
+        const ws = get().ws;
+        if (ws) {
+          try { ws.close(); } catch {}
+        }
+        set({
+          taskId: null,
+          ticker: "",
+          tradeDate: "",
+          status: "idle",
+          reports: {},
+          debates: { bull: "", bear: "" },
+          riskDebates: { aggressive: "", conservative: "", neutral: "" },
+          signal: null,
+          error: null,
+          duration: null,
+          ws: null,
+          heartbeat: "",
+          lastUpdateAt: 0,
+          stats: null,
+          structuredPayloads: {},
+        });
+      },
+    }),
+    {
+      name: "analysis-store",
+      partialize: (state) => ({
+        ticker: state.ticker,
+        tradeDate: state.tradeDate,
+        status: state.status,
+        reports: state.reports,
+        debates: state.debates,
+        riskDebates: state.riskDebates,
+        signal: state.signal,
+        duration: state.duration,
+        stats: state.stats,
+        structuredPayloads: state.structuredPayloads,
+      }),
+    }
+  )
+);

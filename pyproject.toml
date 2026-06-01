@@ -16,6 +16,7 @@ dependencies = [
     "langchain-google-genai>=4.0.0",
     "langchain-openai>=0.3.23",
     "langgraph>=0.4.8",
+    "pydantic>=2.0",
     "pandas>=2.3.0",
     "parsel>=1.10.0",
     "pytz>=2025.2",
@@ -31,6 +32,7 @@ dependencies = [
     "typing-extensions>=4.14.0",
     "yfinance>=0.2.63",
     "python-dotenv>=1.0.0",
+    "fyers-apiv3>=3.0.0",
 ]
 
 [project.scripts]

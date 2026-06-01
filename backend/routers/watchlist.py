@@ -9,6 +9,14 @@ import yfinance as yf
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
 
+def _stock_source() -> str:
+    try:
+        from tradingagents.dataflows.interface import get_data_source_label
+        return get_data_source_label("get_stock_data")
+    except Exception:
+        return "Yahoo Finance"
+
+
 @router.get("")
 def list_watchlist():
     """Get all watchlist items with current prices."""
@@ -36,6 +44,10 @@ def list_watchlist():
                 enriched.append({**item, "symbol": symbol, "price": None, "change": None, "change_percent": None})
         except Exception:
             enriched.append({**item, "symbol": ticker, "price": None, "change": None, "change_percent": None})
+
+    source = _stock_source()
+    for e in enriched:
+        e["data_source"] = source
     return enriched
 
 

@@ -7,9 +7,9 @@ DEFAULT_CONFIG = {
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
     # LLM settings
-    "llm_provider": "anthropic",
-    "deep_think_llm": "claude-sonnet-4-20250514",
-    "quick_think_llm": "claude-haiku-4-5-20251001",
+    "llm_provider": "deepseek",
+    "deep_think_llm": "deepseek-v4-pro",
+    "quick_think_llm": "deepseek-reasoner",
     # Provider-specific thinking configuration
     "google_thinking_level": None,
     "openai_reasoning_effort": None,
@@ -23,8 +23,8 @@ DEFAULT_CONFIG = {
     "max_recur_limit": 100,
     # Data vendor configuration
     "data_vendors": {
-        "core_stock_apis": "yfinance",
-        "technical_indicators": "yfinance",
+        "core_stock_apis": "nse_http,yfinance",
+        "technical_indicators": "nse_http,yfinance",
         "fundamental_data": "yfinance",
         "news_data": "yfinance",
         "indian_market_data": "nse",

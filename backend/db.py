@@ -225,14 +225,40 @@ def remove_from_watchlist(ticker: str):
 
 def save_analysis(task_id: str, data: dict):
     with get_db() as conn:
+        # Ensure new structured columns exist (idempotent ALTER TABLE)
+        for col in (
+            ("market_analysis", "TEXT"),
+            ("fundamentals_analysis", "TEXT"),
+            ("news_analysis", "TEXT"),
+            ("social_sentiment", "TEXT"),
+            ("bull_researcher_payload", "TEXT"),
+            ("bear_researcher_payload", "TEXT"),
+            ("research_manager_verdict", "TEXT"),
+            ("trader_execution_plan", "TEXT"),
+            ("aggressive_debater_payload", "TEXT"),
+            ("conservative_debater_payload", "TEXT"),
+            ("neutral_debater_payload", "TEXT"),
+            ("portfolio_manager_payload", "TEXT"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE analysis_history ADD COLUMN {col[0]} {col[1]}")
+            except Exception:
+                pass  # column already exists
+
         conn.execute(
             """INSERT OR REPLACE INTO analysis_history
             (task_id, ticker, trade_date, signal, market_report, sentiment_report,
              news_report, fundamentals_report, investment_plan, trader_investment_plan,
              final_trade_decision, bull_history, bear_history,
              risk_aggressive_history, risk_conservative_history, risk_neutral_history,
-             stats, duration_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             stats, duration_seconds,
+             market_analysis, fundamentals_analysis, news_analysis, social_sentiment,
+             bull_researcher_payload, bear_researcher_payload,
+             research_manager_verdict, trader_execution_plan,
+             aggressive_debater_payload, conservative_debater_payload,
+             neutral_debater_payload, portfolio_manager_payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 task_id,
                 data.get("ticker"),
@@ -252,6 +278,18 @@ def save_analysis(task_id: str, data: dict):
                 data.get("risk_neutral_history"),
                 json.dumps(data.get("stats")) if data.get("stats") else None,
                 data.get("duration_seconds"),
+                json.dumps(data.get("market_analysis")) if data.get("market_analysis") else None,
+                json.dumps(data.get("fundamentals_analysis")) if data.get("fundamentals_analysis") else None,
+                json.dumps(data.get("news_analysis")) if data.get("news_analysis") else None,
+                json.dumps(data.get("social_sentiment")) if data.get("social_sentiment") else None,
+                json.dumps(data.get("bull_researcher_payload")) if data.get("bull_researcher_payload") else None,
+                json.dumps(data.get("bear_researcher_payload")) if data.get("bear_researcher_payload") else None,
+                json.dumps(data.get("research_manager_verdict")) if data.get("research_manager_verdict") else None,
+                json.dumps(data.get("trader_execution_plan")) if data.get("trader_execution_plan") else None,
+                json.dumps(data.get("aggressive_debater_payload")) if data.get("aggressive_debater_payload") else None,
+                json.dumps(data.get("conservative_debater_payload")) if data.get("conservative_debater_payload") else None,
+                json.dumps(data.get("neutral_debater_payload")) if data.get("neutral_debater_payload") else None,
+                json.dumps(data.get("portfolio_manager_payload")) if data.get("portfolio_manager_payload") else None,
             ),
         )
 
@@ -269,8 +307,20 @@ def get_analysis(task_id: str) -> dict | None:
         row = conn.execute("SELECT * FROM analysis_history WHERE task_id = ?", (task_id,)).fetchone()
         if row:
             d = dict(row)
-            if d.get("stats"):
-                d["stats"] = json.loads(d["stats"])
+            # Deserialize JSON columns
+            for col in (
+                "stats", "market_analysis", "fundamentals_analysis",
+                "news_analysis", "social_sentiment",
+                "bull_researcher_payload", "bear_researcher_payload",
+                "research_manager_verdict", "trader_execution_plan",
+                "aggressive_debater_payload", "conservative_debater_payload",
+                "neutral_debater_payload", "portfolio_manager_payload",
+            ):
+                if d.get(col):
+                    try:
+                        d[col] = json.loads(d[col])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
             return d
         return None
 
@@ -409,8 +459,9 @@ def add_paper_trade(data: dict) -> int:
         cursor = conn.execute(
             """INSERT INTO paper_trades
             (ticker, source, strategy, direction, signal, score, confidence,
-             success_probability, triggered_signals, entry_price, notes, regime_at_entry)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             success_probability, triggered_signals, entry_price, notes, regime_at_entry,
+             stop_loss, target_1, target_2, time_horizon)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("ticker"),
                 data.get("source", "manual"),
@@ -424,6 +475,10 @@ def add_paper_trade(data: dict) -> int:
                 data.get("entry_price"),
                 data.get("notes"),
                 regime_at_entry,
+                data.get("stop_loss"),
+                data.get("target_1"),
+                data.get("target_2"),
+                data.get("time_horizon"),
             ),
         )
         return cursor.lastrowid
@@ -437,7 +492,14 @@ def _migrate_paper_trades_columns():
             ("strategy", "TEXT"),
             ("confidence", "TEXT"),
             ("triggered_signals", "TEXT"),
-            ("regime_at_entry", "TEXT"),  # Market regime when trade was opened
+            ("regime_at_entry", "TEXT"),
+            ("stop_loss", "REAL"),
+            ("target_1", "REAL"),
+            ("target_2", "REAL"),
+            ("time_horizon", "TEXT"),
+            ("simulated_exit_price", "REAL"),
+            ("exit_reason", "TEXT"),
+            ("simulated_pnl_pct", "REAL"),
         ]:
             if col not in existing:
                 try:
@@ -517,6 +579,28 @@ def update_paper_trade_status(trade_id: int, status: str):
         conn.execute(
             "UPDATE paper_trades SET status = ?, updated_at = datetime('now') WHERE id = ?",
             (status, trade_id),
+        )
+
+
+def save_simulated_exit(trade_id: int, exit_price: float, pnl_pct: float, reason: str):
+    """Save the simulated exit result for a paper trade.
+
+    Only marks as expired if the exit was triggered by a strategy condition
+    (stop-loss, target, time horizon). 'held_to_present' means the trade
+    is still open in simulation — keep it active.
+    """
+    should_expire = reason != "held_to_present"
+    status = "expired" if should_expire else "active"
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE paper_trades SET
+                simulated_exit_price = ?,
+                simulated_pnl_pct = ?,
+                exit_reason = ?,
+                status = ?,
+                updated_at = datetime('now')
+               WHERE id = ?""",
+            (exit_price, pnl_pct, reason, status, trade_id),
         )
 
 

@@ -9,8 +9,11 @@ from backend.models import AnalysisRequest, AnalysisResponse
 from backend.ws import manager
 from backend.db import save_analysis, get_analysis, get_analysis_history, update_analysis_pnl
 from pydantic import BaseModel as PydanticBaseModel
+from typing import Optional
 from tradingagents.utils.ticker import normalize_ticker
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.llm_clients import create_llm_client
+from tradingagents.agents import compile_report
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -32,7 +35,11 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
 
     start_time = time.time()
     _tasks[task_id]["status"] = "running"
+    _tasks[task_id]["stopped"] = False
     stats = StatsCallback()
+
+    def _should_stop() -> bool:
+        return bool(_tasks.get(task_id, {}).get("stopped", False))
 
     try:
         ta = TradingAgentsGraph(
@@ -52,6 +59,15 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
 
         for chunk in ta.graph.stream(init_state, **stream_args):
             chunk_count += 1
+            # Check stop signal
+            if _should_stop():
+                print(f"[Analysis {task_id}] Stopped by user after {chunk_count} chunks", flush=True)
+                loop.run_until_complete(manager.send_event(task_id, {
+                    "type": "stopped",
+                    "message": f"Analysis stopped after {chunk_count} chunks",
+                }))
+                _tasks[task_id]["status"] = "stopped"
+                break
             # Heartbeat — let frontend know we're still alive
             last_message = ""
             if chunk.get("messages"):
@@ -84,6 +100,40 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
                         "type": "report",
                         "section": field,
                         "content": val,
+                    }))
+
+            # Detect structured payload updates (Pydantic-validated JSON from each agent)
+            structured_payloads = [
+                ("market_analysis",          "market"),
+                ("fundamentals_analysis",    "fundamentals"),
+                ("news_analysis",            "news"),
+                ("social_sentiment",         "social"),
+                ("bull_researcher_payload",  "bull"),
+                ("bear_researcher_payload",  "bear"),
+                ("research_manager_verdict", "research_manager"),
+                ("trader_execution_plan",    "trader"),
+                ("aggressive_debater_payload", "risk_aggressive"),
+                ("conservative_debater_payload", "risk_conservative"),
+                ("neutral_debater_payload",   "risk_neutral"),
+                ("portfolio_manager_payload", "portfolio_manager"),
+            ]
+            for payload_field, agent in structured_payloads:
+                val = chunk.get(payload_field)
+                if val and val != prev_reports.get(payload_field):
+                    prev_reports[payload_field] = val
+                    # Convert Pydantic model to dict for JSON serialization
+                    if hasattr(val, "model_dump"):
+                        payload_dict = val.model_dump()
+                    elif hasattr(val, "dict"):
+                        payload_dict = val.dict()
+                    else:
+                        payload_dict = val
+                    print(f"[Analysis {task_id}] Structured payload: {payload_field}", flush=True)
+                    loop.run_until_complete(manager.send_event(task_id, {
+                        "type": "structured_payload",
+                        "agent": agent,
+                        "field": payload_field,
+                        "data": payload_dict,
                     }))
 
             # Detect debate updates
@@ -162,6 +212,20 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
             "risk_neutral_history": risk_state.get("neutral_history"),
             "stats": stats_summary,
             "duration_seconds": round(duration, 1),
+            # Structured Pydantic outputs
+            "social_sentiment": final_state.get("social_sentiment"),
+            "market_analysis": final_state.get("market_analysis"),
+            "fundamentals_analysis": final_state.get("fundamentals_analysis"),
+            "news_analysis": final_state.get("news_analysis"),
+            "social_sentiment": final_state.get("social_sentiment"),
+            "bull_researcher_payload": final_state.get("bull_researcher_payload"),
+            "bear_researcher_payload": final_state.get("bear_researcher_payload"),
+            "research_manager_verdict": final_state.get("research_manager_verdict"),
+            "trader_execution_plan": final_state.get("trader_execution_plan"),
+            "aggressive_debater_payload": final_state.get("aggressive_debater_payload"),
+            "conservative_debater_payload": final_state.get("conservative_debater_payload"),
+            "neutral_debater_payload": final_state.get("neutral_debater_payload"),
+            "portfolio_manager_payload": final_state.get("portfolio_manager_payload"),
         }
 
         save_analysis(task_id, result_data)
@@ -238,6 +302,19 @@ def get_analysis_result(task_id: str):
     if result:
         return result
     return {"error": "Analysis not found"}
+
+
+@router.post("/{task_id}/stop")
+def stop_analysis(task_id: str):
+    """Stop a running analysis."""
+    if task_id not in _tasks:
+        return {"ok": False, "error": "Task not found"}
+    task = _tasks[task_id]
+    if task["status"] not in ("pending", "running"):
+        return {"ok": False, "error": f"Task is already {task['status']}"}
+    _tasks[task_id]["stopped"] = True
+    _tasks[task_id]["status"] = "stopping"
+    return {"ok": True, "task_id": task_id, "message": "Stop signal sent"}
 
 
 class PnLUpdate(PydanticBaseModel):
@@ -374,6 +451,177 @@ def get_memory_stats():
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+class ChatRequest(PydanticBaseModel):
+    message: str
+    ticker: str
+    trade_date: str
+    signal: str
+    reports: dict = {}
+    debates: dict = {}
+    risk_debates: dict = {}
+    stats: Optional[dict] = None
+    history: list[dict] = []
+    duration: Optional[float] = None
+
+
+class PdfExportRequest(PydanticBaseModel):
+    ticker: str
+    trade_date: str
+    signal: Optional[str] = None
+    reports: dict = {}
+    debates: dict = {}
+    risk_debates: dict = {}
+    stats: Optional[dict] = None
+    duration: Optional[float] = None
+
+
+@router.post("/chat")
+def analysis_chat(req: ChatRequest):
+    """Answer a user question using the full analysis context.
+
+    Builds a system prompt from all reports, debates, signal and stats,
+    then calls the configured LLM (quick-think model) and returns the response.
+    """
+    # Build the analysis context
+    context_parts = []
+
+    # Signal
+    context_parts.append(f"## Final Verdict\n**Signal:** {req.signal}")
+    context_parts.append(f"**Ticker:** {req.ticker}")
+    context_parts.append(f"**Analysis Date:** {req.trade_date}")
+    if req.duration:
+        context_parts.append(f"**Duration:** {req.duration:.0f}s")
+
+    # Stats
+    if req.stats:
+        context_parts.append(f"\n## Stats\n- LLM calls: {req.stats.get('llm_calls', '—')}")
+        context_parts.append(f"- Total tokens: {req.stats.get('total_tokens', '—')}")
+        context_parts.append(f"- Cost: ${req.stats.get('cost_usd', '—')} (₹{req.stats.get('cost_inr', '—')})")
+
+    # Reports
+    report_labels = {
+        "market_report": "Market Report",
+        "sentiment_report": "Sentiment/Social Media Report",
+        "news_report": "News Analysis Report",
+        "fundamentals_report": "Fundamentals Report",
+        "investment_plan": "Investment Plan (Judge Decision)",
+        "trader_investment_plan": "Trader's Investment Plan",
+        "final_trade_decision": "Final Trade Decision",
+    }
+    for key, label in report_labels.items():
+        if req.reports.get(key):
+            context_parts.append(f"\n## {label}\n{req.reports[key]}")
+
+    # Debates
+    for side, label in [("bull", "Bull Case"), ("bear", "Bear Case")]:
+        if req.debates.get(side):
+            context_parts.append(f"\n## {label}\n{req.debates[side]}")
+
+    # Risk debates
+    risk_labels = {"aggressive": "Aggressive", "conservative": "Conservative", "neutral": "Neutral"}
+    for side, label in risk_labels.items():
+        if req.risk_debates.get(side):
+            context_parts.append(f"\n## Risk Debate — {label}\n{req.risk_debates[side]}")
+
+    system_prompt = (
+        "You are an expert Indian stock market analyst assistant. Below is the complete "
+        "multi-agent analysis output for a stock. Answer the user's questions using ONLY "
+        "the context provided. If the answer isn't in the context, say so plainly — do not "
+        "make up information. Be specific, cite which report or section your answer comes from, "
+        "and explain your reasoning clearly.\n\n"
+        "--- ANALYSIS CONTEXT ---\n"
+        + "\n".join(context_parts)
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in req.history:
+        role = msg.get("role", "user")
+        if role in ("user", "assistant"):
+            messages.append({"role": role, "content": msg.get("content", "")})
+    messages.append({"role": "user", "content": req.message})
+
+    try:
+        quick_client = create_llm_client(
+            provider=DEFAULT_CONFIG["llm_provider"],
+            model=DEFAULT_CONFIG["quick_think_llm"],
+            base_url=DEFAULT_CONFIG.get("backend_url"),
+        )
+        quick_llm = quick_client.get_llm()
+        response = quick_llm.invoke(messages)
+        content = response.content if hasattr(response, "content") else str(response)
+        # Normalize if content is a list (e.g., DeepSeek thinking blocks)
+        from tradingagents.llm_clients.base_client import normalize_content
+        normalize_content(response)
+        return {"reply": response.content}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/pdf-export")
+def export_pdf(req: PdfExportRequest):
+    """Generate a compiled PDF report using the report compiler agent."""
+    try:
+        # Create LLM client for the compiler
+        quick_client = create_llm_client(
+            provider=DEFAULT_CONFIG["llm_provider"],
+            model=DEFAULT_CONFIG["quick_think_llm"],
+            base_url=DEFAULT_CONFIG.get("backend_url"),
+        )
+        quick_llm = quick_client.get_llm()
+
+        # Compile the HTML report via LLM
+        html_content = compile_report(
+            llm=quick_llm,
+            ticker=req.ticker,
+            trade_date=req.trade_date,
+            signal=req.signal or "",
+            duration_str=f"{req.duration:.0f}s" if req.duration else "—",
+            stats=req.stats or {},
+            reports=req.reports or {},
+            debates=req.debates or {},
+            risk_debates=req.risk_debates or {},
+        )
+
+        # Try weasyprint first, fall back to returning HTML
+        try:
+            from weasyprint import HTML
+            import io
+
+            pdf_buffer = io.BytesIO()
+            HTML(string=html_content).write_pdf(pdf_buffer)
+            pdf_buffer.seek(0)
+
+            from fastapi.responses import StreamingResponse
+            return StreamingResponse(
+                pdf_buffer,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"attachment; filename={req.ticker}_analysis_{req.trade_date}.pdf"
+                },
+            )
+        except ImportError:
+            # Fallback: return HTML for browser print
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(
+                content=html_content,
+                headers={
+                    "Content-Disposition": f"inline; filename={req.ticker}_analysis_{req.trade_date}.html"
+                },
+            )
+
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
+        )
 
 
 @router.get("/history/list")

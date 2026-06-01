@@ -1,28 +1,46 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+from tradingagents.agents.analysts.schemas import (
+    NewsAnalysis,
+    extract_and_validate,
+)
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_global_news,
     get_language_instruction,
     get_news,
+    get_serp_news,
+    get_ticker_news,
 )
-from tradingagents.dataflows.config import get_config
+
+
+NEWS_SYSTEM_PROMPT = """\
+You are an expert Financial News Analyst for the Indian market. Your task is to process the provided recent news headlines and articles for the target ticker and output a **strict, valid JSON object** quantifying the market sentiment.
+
+CRITICAL RULES:
+1. You are an information extraction engine. Only use the provided text. Do NOT invent facts.
+2. CATALYST IDENTIFICATION: A catalyst is a FUNDAMENTAL event that changes the company's outlook — earnings beats, regulatory actions, leadership changes, M&A, major contracts. Routine market commentary is NOT a catalyst.
+3. CATALYST PRIORITY: When multiple exist, select the one with largest expected price impact: (1) Regulatory/legal > (2) Earnings/sales > (3) Management > (4) Sector/macro.
+4. DRIVER SOURCE (anti-hallucination): For `driver_source`, copy-paste an EXACT sentence from the provided news text. If you cannot find an exact sentence, write "No direct quote available — paraphrased from provided text." NEVER invent a quote.
+5. SENTIMENT SCORING: -1.0 = extreme negative (fraud, delisting risk), -0.5 = moderately negative (downgrade, weak results), 0.0 = neutral/mixed, +0.5 = moderately positive (beat, upgrade), +1.0 = extreme positive (blockbuster results, major catalyst).
+6. SENTIMENT CALCULATION: Count bullish vs bearish articles. Score = (bullish_count - bearish_count) / total_count, then adjust magnitude by catalyst severity (regulatory ±0.3, earnings ±0.2, other ±0.1).
+
+Do not provide conversational filler, introductions, or markdown outside of the JSON block.
+"""
 
 
 def create_news_analyst(llm):
     def news_analyst_node(state):
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        instrument_context = build_instrument_context(ticker)
 
         tools = [
             get_news,
             get_global_news,
+            get_serp_news,
+            get_ticker_news,
         ]
-
-        system_message = (
-            "You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(query, start_date, end_date) for company-specific or targeted news searches, and get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_language_instruction()
-        )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -41,7 +59,7 @@ def create_news_analyst(llm):
             ]
         )
 
-        prompt = prompt.partial(system_message=system_message)
+        prompt = prompt.partial(system_message=NEWS_SYSTEM_PROMPT)
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
@@ -50,13 +68,21 @@ def create_news_analyst(llm):
         result = chain.invoke(state["messages"])
 
         report = ""
+        news_analysis = None
 
         if len(result.tool_calls) == 0:
             report = result.content
+            # Attempt structured extraction
+            news_analysis = extract_and_validate(
+                report,
+                NewsAnalysis,
+                ticker=ticker,
+            )
 
         return {
             "messages": [result],
             "news_report": report,
+            "news_analysis": news_analysis,
         }
 
     return news_analyst_node
