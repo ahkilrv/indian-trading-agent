@@ -249,10 +249,10 @@ export const useAnalysisStore = create<AnalysisState>()(
     {
       name: "analysis-store",
       partialize: (state) => ({
+        taskId: state.taskId,
         ticker: state.ticker,
         tradeDate: state.tradeDate,
-        // NEVER persist running/stopping status — on reload show idle
-        status: state.status === "running" || state.status === "stopping" ? "idle" : state.status,
+        status: state.status,
         reports: state.reports,
         debates: state.debates,
         riskDebates: state.riskDebates,
@@ -261,12 +261,10 @@ export const useAnalysisStore = create<AnalysisState>()(
         stats: state.stats,
         structuredPayloads: state.structuredPayloads,
       }),
-      // Cleanup on next rehydration: if we somehow got stale "running", fix it
+      // On rehydrate: only reset if truly stale (no taskId + running)
       onRehydrateStorage: () => (state, error) => {
         if (error || !state) return;
-        if (state.status === "running") {
-          // Stale "running" — should never happen with the above partialize,
-          // but belt-and-suspenders for existing localStorage entries.
+        if (state.status === "running" && !state.taskId) {
           useAnalysisStore.setState({
             status: "idle",
             taskId: null,
