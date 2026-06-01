@@ -50,7 +50,7 @@ def analyze_monthly_seasonality(ticker: str, years: int = 5) -> dict:
         returns = monthly_data.get(m, [])
         if not returns:
             continue
-        avg = float(np.mean(returns))
+        avg = float(np.nanmean(returns))
         win_rate = float(sum(1 for r in returns if r > 0) / len(returns) * 100)
         best = float(max(returns)) if returns else 0
         worst = float(min(returns)) if returns else 0
@@ -132,12 +132,13 @@ def analyze_sector_rotation(months: int = 3) -> dict:
                 hist = t.history(period=f"{months}mo")
                 if len(hist) > 10:
                     ret = float((hist["Close"].iloc[-1] / hist["Close"].iloc[0] - 1) * 100)
-                    returns.append(ret)
+                    if not np.isnan(ret):
+                        returns.append(ret)
             except Exception:
                 continue
 
         if returns:
-            avg_return = float(np.mean(returns))
+            avg_return = float(np.nanmean(returns))
             sector_performance.append({
                 "sector": sector_name,
                 "avg_return_pct": round(avg_return, 2),
