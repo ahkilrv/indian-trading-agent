@@ -4,24 +4,32 @@ from langchain_core.callbacks import BaseCallbackHandler
 from typing import Any, Dict
 
 
-# Cost per million tokens (USD)
+# Cost per million tokens (USD) — accurate as of 2026-06-02
+# DeepSeek prices from https://api-docs.deepseek.com/quick_start/pricing
+# (post-promo official rates effective 2026-05-31)
 MODEL_COSTS = {
+    # DeepSeek (current official pricing)
+    "deepseek-v4-pro":       {"input": 0.435, "output": 0.87},   # cache-miss rate (conservative)
+    "deepseek-v4-flash":     {"input": 0.140, "output": 0.28},
+    # Legacy model name aliases (deprecated, map to v4-flash)
+    "deepseek-reasoner":     {"input": 0.140, "output": 0.28},   # thinking mode of v4-flash
+    "deepseek-chat":         {"input": 0.140, "output": 0.28},   # non-thinking mode of v4-flash
     # Anthropic
-    "claude-opus-4-20250514": {"input": 15.0, "output": 75.0},
-    "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
-    "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.0},
-    "claude-3-5-sonnet-20241022": {"input": 3.0, "output": 15.0},
-    "claude-3-5-haiku-20241022": {"input": 0.80, "output": 4.0},
+    "claude-opus-4-20250514":   {"input": 15.0, "output": 75.0},
+    "claude-sonnet-4-20250514": {"input": 3.0,  "output": 15.0},
+    "claude-haiku-4-5-20251001":{"input": 0.80, "output": 4.0},
+    "claude-3-5-sonnet-20241022":{"input": 3.0,  "output": 15.0},
+    "claude-3-5-haiku-20241022":{"input": 0.80, "output": 4.0},
     # OpenAI
-    "gpt-5.4": {"input": 2.50, "output": 10.0},
+    "gpt-5.4":      {"input": 2.50, "output": 10.0},
     "gpt-5.4-mini": {"input": 0.15, "output": 0.60},
-    "gpt-4.1": {"input": 2.50, "output": 10.0},
+    "gpt-4.1":      {"input": 2.50, "output": 10.0},
     "gpt-4.1-mini": {"input": 0.15, "output": 0.60},
     # Google
-    "gemini-3.1-pro": {"input": 1.25, "output": 5.0},
-    "gemini-3-pro": {"input": 1.25, "output": 5.0},
+    "gemini-3.1-pro":   {"input": 1.25,  "output": 5.0},
+    "gemini-3-pro":     {"input": 1.25,  "output": 5.0},
     "gemini-2.5-flash": {"input": 0.075, "output": 0.30},
-    "gemini-2-flash": {"input": 0.10, "output": 0.40},
+    "gemini-2-flash":   {"input": 0.10,  "output": 0.40},
 }
 
 # USD to INR conversion (approximate)
@@ -90,8 +98,14 @@ class StatsCallback(BaseCallbackHandler):
                 self.per_model_tokens[model_name]["input"] += int(input_tokens or 0)
                 self.per_model_tokens[model_name]["output"] += int(output_tokens or 0)
 
-                # Cost calculation
+                # Cost calculation — try exact match first, then normalized match
                 costs = MODEL_COSTS.get(model_name)
+                if not costs:
+                    normalized = model_name.lower().replace("-", "").replace("_", "").strip()
+                    for key, val in MODEL_COSTS.items():
+                        if key.lower().replace("-", "").replace("_", "") == normalized:
+                            costs = val
+                            break
                 if costs:
                     call_cost = (input_tokens / 1_000_000) * costs["input"] + (output_tokens / 1_000_000) * costs["output"]
                     self.cost_usd += call_cost
