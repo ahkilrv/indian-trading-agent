@@ -40,10 +40,17 @@ function AnalysisPageInner() {
 
   // Wait for zustand persist to hydrate from localStorage before rendering
   useEffect(() => {
-    // Small delay to let persist middleware rehydrate
     const t = setTimeout(() => setHydrated(true), 50);
     return () => clearTimeout(t);
   }, []);
+
+  // Belt-and-suspenders: if we somehow have "running" status with no taskId
+  // (can happen from stale localStorage), auto-reset to idle.
+  useEffect(() => {
+    if (hydrated && analysis.status === "running" && !analysis.taskId) {
+      analysis.reset();
+    }
+  }, [hydrated, analysis.status, analysis.taskId]);
 
   // Local input state (pre-filled from URL or last analysis ticker)
   const [tickerInput, setTickerInput] = useState(defaultTicker || analysis.ticker || "");
@@ -137,13 +144,13 @@ function AnalysisPageInner() {
             </div>
             <Button
               onClick={handleRun}
-              disabled={analysis.status === "running" || !tickerInput.trim()}
+              disabled={analysis.status === "running" || analysis.status === "stopping" || !tickerInput.trim()}
               className="h-10"
             >
-              {analysis.status === "running" ? (
+              {analysis.status === "running" || analysis.status === "stopping" ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Analyzing...
+                  {analysis.status === "stopping" ? "Stopping..." : "Analyzing..."}
                 </>
               ) : (
                 <>
@@ -152,9 +159,15 @@ function AnalysisPageInner() {
                 </>
               )}
             </Button>
-            {analysis.status === "running" && (
-              <Button onClick={analysis.stop} variant="destructive" size="sm" className="h-8">
-                Stop
+            {(analysis.status === "running" || analysis.status === "stopping") && (
+              <Button
+                onClick={analysis.stop}
+                disabled={analysis.status === "stopping"}
+                variant="destructive"
+                size="sm"
+                className="h-8"
+              >
+                {analysis.status === "stopping" ? "Stopping..." : "Stop"}
               </Button>
             )}
           </div>
@@ -217,7 +230,7 @@ function AnalysisPageInner() {
         <div className="grid grid-cols-4 gap-6">
           {/* Left: Agent Progress */}
           <div className="col-span-1">
-            <AgentProgress reports={analysis.reports} signal={analysis.signal} status={analysis.status} />
+            <AgentProgress reports={analysis.reports} signal={analysis.signal} status={analysis.status} startedAt={analysis.startedAt} />
           </div>
 
           {/* Right: Reports */}

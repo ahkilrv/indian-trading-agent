@@ -1,7 +1,8 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CheckCircle2, Clock, Loader2, Circle } from "lucide-react";
+import { CheckCircle2, Loader2, Circle, AlertTriangle } from "lucide-react";
+import { AGENT_TIMEOUT_MS } from "@/lib/store";
 
 interface Agent {
   name: string;
@@ -25,9 +26,10 @@ interface Props {
   reports: Record<string, string>;
   signal: string | null;
   status: string;
+  startedAt: number; // timestamp when analysis started
 }
 
-export function AgentProgress({ reports, signal, status }: Props) {
+export function AgentProgress({ reports, signal, status, startedAt }: Props) {
   const reportMap: Record<string, string> = {
     "Market Analyst": "market_report",
     "Social Analyst": "sentiment_report",
@@ -41,9 +43,12 @@ export function AgentProgress({ reports, signal, status }: Props) {
     "Risk Debate": "risk_aggressive_history",
   };
 
+  const now = Date.now();
+  const elapsed = startedAt > 0 ? now - startedAt : 0;
+
   // First pass: determine completed status
   const agentStatuses = defaultAgents.map((agent) => {
-    if (status === "completed") return "completed" as const;
+    if (status === "completed" || status === "stopping") return "completed" as const;
     if (status !== "running") return "pending" as const;
 
     const reportKey = reportMap[agent.name];
@@ -52,7 +57,7 @@ export function AgentProgress({ reports, signal, status }: Props) {
     return "pending" as const;
   });
 
-  // Second pass: mark the first pending agent as running
+  // Second pass: mark the first pending agent as running; show warnings for long-running agents
   let foundRunning = false;
   const agents = defaultAgents.map((agent, i) => {
     let agentStatus: "pending" | "running" | "completed" = agentStatuses[i];
@@ -63,7 +68,8 @@ export function AgentProgress({ reports, signal, status }: Props) {
     return { ...agent, status: agentStatus };
   });
 
-  const statusIcon = (s: string) => {
+  const statusIcon = (s: string, isTimedOut: boolean) => {
+    if (isTimedOut) return <AlertTriangle className="h-4 w-4 text-amber-400" />;
     switch (s) {
       case "completed": return <CheckCircle2 className="h-4 w-4 text-green-400" />;
       case "running": return <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />;
@@ -74,21 +80,35 @@ export function AgentProgress({ reports, signal, status }: Props) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm">Agent Pipeline</CardTitle>
+        <CardTitle className="text-sm">
+          Agent Pipeline
+          {elapsed > AGENT_TIMEOUT_MS && status === "running" && (
+            <span className="ml-2 text-amber-400 text-xs font-normal">
+              ({Math.floor(elapsed / 1000)}s)
+            </span>
+          )}
+        </CardTitle>
       </CardHeader>
       <CardContent className="pt-0 space-y-2">
-        {agents.map((agent) => (
-          <div key={agent.name} className="flex items-center gap-2">
-            {statusIcon(agent.status)}
-            <span className={`text-sm ${
-              agent.status === "completed" ? "text-foreground" :
-              agent.status === "running" ? "text-blue-400 font-medium" :
-              "text-muted-foreground"
-            }`}>
-              {agent.name}
-            </span>
-          </div>
-        ))}
+        {agents.map((agent) => {
+          const isTimedOut = agent.status === "running" && elapsed > AGENT_TIMEOUT_MS;
+          return (
+            <div key={agent.name} className="flex items-center gap-2">
+              {statusIcon(agent.status, isTimedOut)}
+              <span className={`text-sm ${
+                isTimedOut ? "text-amber-400 font-medium" :
+                agent.status === "completed" ? "text-foreground" :
+                agent.status === "running" ? "text-blue-400 font-medium" :
+                "text-muted-foreground"
+              }`}>
+                {agent.name}
+                {isTimedOut && (
+                  <span className="ml-1 text-[10px] text-amber-300">(slow)</span>
+                )}
+              </span>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
