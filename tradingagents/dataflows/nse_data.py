@@ -182,7 +182,7 @@ def get_nse_indicators(
 
     result = compute_indicator(df_nse, indicator.strip().lower())
     if result is None:
-        raise ValueError(f"Could not compute indicator '{indicator}' for {nse_symbol}")
+        raise ValueError(f"Could not compute indicator '{indicator}' for {nse_symbol}. Insufficient data — do NOT retry this indicator.")
 
     return format_indicator_text(result, indicator.strip().lower(), look_back_days)
 
@@ -382,7 +382,7 @@ def get_nse_http_indicators(
 
     result = compute_indicator(df, indicator.strip().lower())
     if result is None:
-        raise ValueError(f"Could not compute indicator '{indicator}' for {nse_symbol}")
+        raise ValueError(f"Could not compute indicator '{indicator}' for {nse_symbol}. Insufficient columns or data — do NOT retry this indicator.")
 
     return format_indicator_text(result, indicator.strip().lower(), look_back_days)
 

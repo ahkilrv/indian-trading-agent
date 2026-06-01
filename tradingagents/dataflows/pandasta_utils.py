@@ -231,21 +231,14 @@ def compute_indicator(
     df: pd.DataFrame,
     indicator: str,
 ) -> Optional[pd.Series | pd.DataFrame]:
-    """Compute a single technical indicator from an OHLCV DataFrame.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        OHLCV data with columns open/high/low/close/volume (or title-case).
-    indicator : str
-        Indicator name, e.g. 'rsi', 'macd', 'sma_50', 'bollinger'.
-
-    Returns
-    -------
-    pd.Series or pd.DataFrame or None
-        The computed indicator values, or None if computation failed.
-    """
+    """Compute a single technical indicator from an OHLCV DataFrame."""
     df = _prepare_ohlcv(df)
+
+    # Drop rows where close is NaN — prevents pandas-ta from failing on
+    # incomplete data (e.g. yfinance returns NaN for future/today's close)
+    if df.get("close") is not None:
+        df = df.dropna(subset=["close"])
+
     ind = indicator.lower().strip()
 
     close = df.get("close")
@@ -297,7 +290,7 @@ def compute_indicator(
         return ta.mom(close, length=10)
 
     # ── Volatility ──────────────────────────────────────────────
-    if ind in ("bollinger", "boll"):
+    if ind in ("bollinger", "boll", "bb", "bbands"):
         return ta.bbands(close, length=20)
     if ind in ("boll_ub", "bb_upper"):
         result = ta.bbands(close, length=20)
