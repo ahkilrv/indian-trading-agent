@@ -460,8 +460,8 @@ def add_paper_trade(data: dict) -> int:
             """INSERT INTO paper_trades
             (ticker, source, strategy, direction, signal, score, confidence,
              success_probability, triggered_signals, entry_price, notes, regime_at_entry,
-             stop_loss, target_1, target_2, time_horizon)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             stop_loss, target_1, target_2, time_horizon, analysis_task_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("ticker"),
                 data.get("source", "manual"),
@@ -479,6 +479,7 @@ def add_paper_trade(data: dict) -> int:
                 data.get("target_1"),
                 data.get("target_2"),
                 data.get("time_horizon"),
+                data.get("analysis_task_id"),
             ),
         )
         return cursor.lastrowid
@@ -500,6 +501,7 @@ def _migrate_paper_trades_columns():
             ("simulated_exit_price", "REAL"),
             ("exit_reason", "TEXT"),
             ("simulated_pnl_pct", "REAL"),
+            ("analysis_task_id", "TEXT"),
         ]:
             if col not in existing:
                 try:

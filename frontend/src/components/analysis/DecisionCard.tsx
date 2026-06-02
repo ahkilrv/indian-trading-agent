@@ -1,8 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Target, Shield, Flag, Clock, Percent } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Target, Shield, Flag, Clock, Percent, FlaskConical, Loader2 } from "lucide-react";
 import { TradingViewLink } from "@/components/TradingViewLink";
+import { openPaperTrade } from "@/lib/api";
+import { toast } from "sonner";
 
 const signalConfig: Record<string, { color: string; bg: string; icon: any; label: string }> = {
   BUY: { color: "text-green-400", bg: "bg-green-500/10 border-green-500/30", icon: TrendingUp, label: "BUY" },
@@ -19,6 +23,7 @@ interface Props {
   ticker: string;
   duration?: number | null;
   portfolioPayload?: Record<string, any> | null;
+  taskId?: string | null;
 }
 
 function ScoreBar({ value, max, color, label }: { value: number; max: number; color: string; label: string }) {
@@ -36,16 +41,59 @@ function ScoreBar({ value, max, color, label }: { value: number; max: number; co
   );
 }
 
-export function DecisionCard({ signal, ticker, duration, portfolioPayload }: Props) {
+export function DecisionCard({ signal, ticker, duration, portfolioPayload, taskId }: Props) {
+  const [tracking, setTracking] = useState(false);
   if (!signal) return null;
 
   const config = signalConfig[signal] || signalConfig.HOLD;
   const Icon = config.icon;
   const pm = portfolioPayload;
 
-  // Parse signal to match structured payload's rating format
-  const signalNormalized = signal.replace(/ /g, "_");
-  const rating = pm?.rating;
+  const isTradeable = signal === "BUY" || signal === "STRONG BUY" || signal === "SELL" || signal === "SHORT";
+  const hasStrategyParams = pm?.stop_loss != null && pm?.target_1 != null;
+
+  const handleTrack = async () => {
+    if (!pm) return;
+    setTracking(true);
+    try {
+      // Map portfolio manager rating to signal/direction
+      const rating = pm.rating || signal;
+      const direction = rating.includes("BUY") ? "LONG" : rating.includes("SELL") || rating === "SHORT" ? "SHORT" : "LONG";
+
+      const result: any = await openPaperTrade({
+        ticker,
+        source: "ai_analysis",
+        strategy: "AI Multi-Agent Pipeline",
+        signal: rating,
+        confidence: pm.confidence_score ? (pm.confidence_score >= 0.7 ? "HIGH" : pm.confidence_score >= 0.4 ? "MEDIUM" : "LOW") : undefined,
+        success_probability: pm.confidence_score ? Math.round(pm.confidence_score * 100) : undefined,
+        score: pm.confidence_score || undefined,
+        stop_loss: pm.stop_loss,
+        target_1: pm.target_1,
+        target_2: pm.target_2,
+        time_horizon: pm.time_horizon,
+        analysis_task_id: taskId || undefined,
+      });
+
+      if (result.ok) {
+        toast.success(
+          <div>
+            <strong>{ticker}</strong> paper trade opened at ₹{result.entry_price}
+            <br />
+            <span className="text-xs text-muted-foreground">
+              SL: ₹{pm.stop_loss} · T1: ₹{pm.target_1}{pm.target_2 ? ` · T2: ₹${pm.target_2}` : ""}
+            </span>
+          </div>
+        );
+      } else {
+        toast.error(result.error || "Failed to open paper trade");
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to open paper trade");
+    } finally {
+      setTracking(false);
+    }
+  };
 
   return (
     <Card className={`${config.bg} border-2`}>
@@ -78,12 +126,26 @@ export function DecisionCard({ signal, ticker, duration, portfolioPayload }: Pro
               </div>
             )}
           </div>
-          {duration && (
-            <div className="text-right shrink-0">
-              <p className="text-xs text-muted-foreground">Duration</p>
-              <p className="text-lg font-sans">{Math.round(duration)}s</p>
-            </div>
-          )}
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            {duration && (
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Duration</p>
+                <p className="text-lg font-sans">{Math.round(duration)}s</p>
+              </div>
+            )}
+            {isTradeable && hasStrategyParams && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs"
+                onClick={handleTrack}
+                disabled={tracking}
+              >
+                {tracking ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <FlaskConical className="h-3 w-3 mr-1" />}
+                {tracking ? "Opening..." : "Track with AI Levels"}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Price Levels — only show if portfolio manager data exists */}

@@ -234,6 +234,7 @@ function AnalysisPageInner() {
             ticker={displayTicker}
             duration={analysis.duration}
             portfolioPayload={analysis.structuredPayloads?.portfolio_manager || null}
+            taskId={analysis.taskId}
           />
           {analysis.status === "completed" && (
             <DecisionReasoning payloads={analysis.structuredPayloads} signal={analysis.signal} />

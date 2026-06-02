@@ -48,6 +48,7 @@ def open_paper_trade(
     target_1: float = None,
     target_2: float = None,
     time_horizon: str = None,
+    analysis_task_id: str = None,
 ) -> dict:
     """Open a new paper trade at current market price.
 
@@ -85,6 +86,7 @@ def open_paper_trade(
         "target_1": target_1,
         "target_2": target_2,
         "time_horizon": time_horizon,
+        "analysis_task_id": analysis_task_id,
     })
 
     # Immediately simulate to check if the trade already breached its stops

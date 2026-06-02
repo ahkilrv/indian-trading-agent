@@ -118,7 +118,11 @@ function RecommendationCard({ rec }: { rec: any }) {
                     confidence: rec.confidence,
                     success_probability: rec.success_probability,
                     triggered_signals: rec.signals,
-                  } as any);
+                    // Basic SL/Targets from current price
+                    stop_loss: rec.price ? Number((rec.price * (rec.direction?.includes("BUY") ? 0.97 : 1.03)).toFixed(2)) : undefined,
+                    target_1: rec.price ? Number((rec.price * (rec.direction?.includes("BUY") ? 1.05 : 0.95)).toFixed(2)) : undefined,
+                    time_horizon: "1_WEEK",
+                  });
                   toast.success(`${rec.ticker} tracked at Rs.${rec.price}`, {
                     description: "Paper trade opened. Check P&L at 1/3/5/10 days on the Simulation page.",
                     duration: 6000,

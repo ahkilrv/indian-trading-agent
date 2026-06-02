@@ -35,6 +35,8 @@ class OpenTradeRequest(BaseModel):
     target_1: float | None = None
     target_2: float | None = None
     time_horizon: str | None = None
+    # Link back to the analysis that produced this trade
+    analysis_task_id: str | None = None
 
 
 @router.post("/paper-trade")
@@ -54,6 +56,7 @@ def open_trade(req: OpenTradeRequest):
         target_1=req.target_1,
         target_2=req.target_2,
         time_horizon=req.time_horizon,
+        analysis_task_id=req.analysis_task_id,
     )
 
 

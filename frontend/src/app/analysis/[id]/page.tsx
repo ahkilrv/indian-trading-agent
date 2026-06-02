@@ -47,7 +47,13 @@ export default function AnalysisDetailPage() {
         <p className="text-sm text-muted-foreground">Date: {result.trade_date} | Task: {result.task_id}</p>
       </div>
 
-      <DecisionCard signal={result.signal} ticker={result.ticker} duration={result.duration_seconds} />
+      <DecisionCard
+        signal={result.signal}
+        ticker={result.ticker}
+        duration={result.duration_seconds}
+        portfolioPayload={result.portfolio_manager_payload || null}
+        taskId={result.task_id}
+      />
 
       <ReportPanel reports={reports} />
 
