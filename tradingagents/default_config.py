@@ -23,8 +23,8 @@ DEFAULT_CONFIG = {
     "max_recur_limit": 100,
     # Data vendor configuration
     "data_vendors": {
-        "core_stock_apis": "nse_http,yfinance",
-        "technical_indicators": "nse_http,yfinance",
+        "core_stock_apis": "dhan,nse_http,yfinance",
+        "technical_indicators": "dhan,nse_http,yfinance",
         "fundamental_data": "yfinance",
         "news_data": "yfinance",
         "indian_market_data": "nse",

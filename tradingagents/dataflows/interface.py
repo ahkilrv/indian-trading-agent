@@ -35,6 +35,9 @@ from .nse_data import (
     get_nse_http_indicators,
 )
 
+# Import Dhan broker API
+from .dhan_data import get_dhan_stock_data, get_dhan_indicators
+
 # Import Fyers API data functions
 from .fyers_data import get_fyers_stock_data, get_fyers_indicators
 
@@ -140,6 +143,7 @@ VENDOR_METHODS = {
         "fyers": get_fyers_stock_data,
         "nse": get_nse_stock_data,
         "nse_http": get_nse_http_stock_data,
+        "dhan": get_dhan_stock_data,
     },
     # technical_indicators
     "get_indicators": {
@@ -148,6 +152,7 @@ VENDOR_METHODS = {
         "fyers": get_fyers_indicators,
         "nse": get_nse_indicators,
         "nse_http": get_nse_http_indicators,
+        "dhan": get_dhan_indicators,
     },
     # fundamental_data
     "get_fundamentals": {
@@ -239,6 +244,7 @@ def get_data_source_label(method: str) -> str:
         "yfinance": "Yahoo Finance",
         "nse": "NSE India",
         "nse_http": "NSE India",
+        "dhan": "DhanHQ",
         "fyers": "Fyers",
         "alpha_vantage": "Alpha Vantage",
         "pytrends": "Google Trends",

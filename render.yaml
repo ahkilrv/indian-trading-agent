@@ -2,7 +2,7 @@ services:
   # FastAPI backend + NSE sidecar (Docker multi-stage)
   - type: web
     name: trading-agent-backend
-    runtime: docker
+    runtime: python
     plan: free
     envVars:
       - key: CORS_ORIGINS
