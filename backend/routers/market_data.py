@@ -1,5 +1,7 @@
 """Market data endpoints — stock quotes, charts, indicators, fundamentals, news."""
 
+import math
+
 from fastapi import APIRouter, Query
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -88,14 +90,18 @@ def get_chart_data(
 
     data = []
     for idx, row in hist.iterrows():
+        o, h, l, c = row["Open"], row["High"], row["Low"], row["Close"]
+        # Skip rows with NaN OHLCV (yfinance returns NaN for future dates)
+        if any(v is None or (isinstance(v, float) and math.isnan(v)) for v in (o, h, l, c)):
+            continue
         ts = idx.strftime("%Y-%m-%d") if interval in ("1d", "1wk", "1mo") else idx.isoformat()
         data.append({
             "time": ts,
-            "open": round(row["Open"], 2),
-            "high": round(row["High"], 2),
-            "low": round(row["Low"], 2),
-            "close": round(row["Close"], 2),
-            "volume": int(row["Volume"]),
+            "open": round(o, 2),
+            "high": round(h, 2),
+            "low": round(l, 2),
+            "close": round(c, 2),
+            "volume": int(row["Volume"]) if not (isinstance(row["Volume"], float) and math.isnan(row["Volume"])) else 0,
         })
 
     return {

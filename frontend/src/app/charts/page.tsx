@@ -90,13 +90,15 @@ export default function ChartsPage() {
       });
 
       candleSeries.setData(
-        data.map((d: any) => ({
-          time: d.time,
-          open: d.open,
-          high: d.high,
-          low: d.low,
-          close: d.close,
-        }))
+        data
+          .filter((d: any) => d.open != null && d.close != null)
+          .map((d: any) => ({
+            time: d.time,
+            open: d.open ?? 0,
+            high: d.high ?? 0,
+            low: d.low ?? 0,
+            close: d.close ?? 0,
+          }))
       );
 
       const volumeSeries = chart.addSeries(lc.HistogramSeries, {
