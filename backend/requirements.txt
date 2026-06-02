@@ -1,0 +1,32 @@
+# ── Core Backend ────────────────────────────────────
+fastapi>=0.136.0
+uvicorn[standard]>=0.30.0
+websockets>=16.0
+aiosqlite>=0.22.0
+
+# ── Data Processing ─────────────────────────────────
+numpy>=2.0
+pandas>=2.3.0
+pandas-ta>=0.4.0
+
+# ── External APIs / Data ────────────────────────────
+yfinance>=0.2.63
+requests>=2.32.0
+feedparser>=6.0
+python-dotenv>=1.0.0
+
+# ── Indian Market Data ──────────────────────────────
+nsepython>=2.0
+fyers-apiv3>=3.0.0
+
+# ── LLM / AI Framework ──────────────────────────────
+langchain-core>=0.3.81
+langchain-openai>=0.3.23
+langchain-anthropic>=0.3.15
+langchain-google-genai>=4.0.0
+langchain-experimental>=0.3.4
+langgraph>=0.4.8
+pydantic>=2.0
+
+# ── Local library (editable install) ────────────────
+-e .

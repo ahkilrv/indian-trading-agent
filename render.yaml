@@ -1,0 +1,31 @@
+services:
+  # FastAPI backend with WebSocket support
+  - type: web
+    name: trading-agent-backend
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: CORS_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        value: /var/data/trading_agent.db
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: SERPAPI_KEY
+        sync: false
+      - key: FYERS_APP_ID
+        sync: false
+      - key: FYERS_SECRET_KEY
+        sync: false
+      - key: NSE_SIDECAR_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    plan: free
