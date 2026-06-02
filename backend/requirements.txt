@@ -16,13 +16,13 @@ feedparser>=6.0
 python-dotenv>=1.0.0
 
 # ── LLM / AI Framework ──────────────────────────────
-langchain-core>=0.3.81,<0.4
-langchain-openai>=0.3.23,<0.4
-langchain-anthropic>=0.3.15,<0.4
-langchain-google-genai>=4.0.0,<5.0
-langchain-experimental>=0.3.4,<0.4
-langgraph>=0.4.8,<0.5
-pydantic>=2.0,<3.0
+langchain-core>=0.3.81
+langchain-openai>=0.3.23
+langchain-anthropic>=0.3.15
+langchain-google-genai>=4.0.0
+langchain-experimental>=0.3.4
+langgraph>=0.4.8
+pydantic>=2.0
 
 # ── tradingagents package deps (from pyproject.toml, trimmed) ──
 rich>=14.0.0,<15.0
