@@ -12,6 +12,42 @@ IST = ZoneInfo("Asia/Kolkata")
 
 router = APIRouter(prefix="/api/market-data", tags=["market-data"])
 
+# ── Helpers ──────────────────────────────────────────────────────────
+
+
+def _yf_safe_ticker(symbol: str):
+    """Create a yfinance Ticker, returning None if rate-limited."""
+    import yfinance.exceptions
+    try:
+        return yf.Ticker(symbol)
+    except yfinance.exceptions.YFRateLimitError:
+        return None
+    except Exception:
+        return None
+
+
+def _yf_safe_info(symbol: str) -> dict:
+    """Fetch yfinance info safely — returns empty dict on failure."""
+    t = _yf_safe_ticker(symbol)
+    if t is None:
+        return {}
+    try:
+        return t.info or {}
+    except Exception:
+        return {}
+
+
+def _yf_safe_history(symbol: str, **kwargs):
+    """Fetch yfinance history safely — returns empty DataFrame on failure."""
+    import pandas as pd
+    t = _yf_safe_ticker(symbol)
+    if t is None:
+        return pd.DataFrame()
+    try:
+        return t.history(**kwargs)
+    except Exception:
+        return pd.DataFrame()
+
 
 def _stock_source() -> str:
     """Return human-readable stock data source label."""
@@ -42,12 +78,52 @@ def search_stocks(q: str = Query("", description="Search query — ticker or com
 def get_quote(ticker: str):
     """Get real-time quote for a ticker."""
     symbol = normalize_ticker(ticker)
-    t = yf.Ticker(symbol)
-    info = t.info
 
-    hist = t.history(period="2d")
-    if hist.empty:
-        return {"error": f"No data found for {symbol}", "data_source": _stock_source()}
+    # Try yfinance first (info + history), then fall back to vendor chain
+    info = _yf_safe_info(symbol)
+    hist = _yf_safe_history(symbol, period="2d")
+
+    if hist.empty or not info:
+        # yfinance rate-limited or unavailable — try the vendor chain for chart data
+        try:
+            from tradingagents.dataflows.interface import route_to_vendor
+            csv_data = route_to_vendor(
+                "get_stock_data",
+                ticker,
+                (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d"),
+            )
+            # Parse CSV to get latest price
+            import pandas as pd
+            from io import StringIO
+            df = pd.read_csv(StringIO(csv_data), comment="#")
+            if df.empty:
+                return {"ticker": symbol, "error": "No data available", "data_source": _stock_source()}
+            last = df.iloc[-1]
+            prev = df.iloc[-2] if len(df) > 1 else last
+            price = last.get("Close", last.get("close", 0))
+            prev_close = info.get("previousClose") or prev.get("Close", prev.get("close", price))
+            change = price - prev_close
+            change_pct = (change / prev_close * 100) if prev_close else 0
+            return {
+                "ticker": symbol,
+                "name": info.get("shortName", symbol),
+                "price": round(float(price), 2) if price else None,
+                "change": round(float(change), 2) if price else None,
+                "change_percent": round(float(change_pct), 2) if price else None,
+                "volume": int(last.get("Volume", last.get("volume", 0))),
+                "high": round(float(last.get("High", last.get("high", 0))), 2) or None,
+                "low": round(float(last.get("Low", last.get("low", 0))), 2) or None,
+                "open": round(float(last.get("Open", last.get("open", 0))), 2) or None,
+                "prev_close": round(float(prev_close), 2) if prev_close else None,
+                "market_cap": info.get("marketCap"),
+                "pe_ratio": info.get("trailingPE"),
+                "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                "data_source": _stock_source(),
+            }
+        except Exception:
+            return {"ticker": symbol, "error": "All data sources unavailable", "data_source": _stock_source()}
 
     current = hist.iloc[-1]
     prev_close = info.get("previousClose") or (hist.iloc[-2]["Close"] if len(hist) > 1 else current["Close"])
@@ -82,8 +158,7 @@ def get_chart_data(
 ):
     """Get OHLCV chart data for a ticker."""
     symbol = normalize_ticker(ticker)
-    t = yf.Ticker(symbol)
-    hist = t.history(period=period, interval=interval)
+    hist = _yf_safe_history(symbol, period=period, interval=interval)
 
     if hist.empty:
         return {"error": f"No data for {symbol}", "data": [], "data_source": _stock_source()}
