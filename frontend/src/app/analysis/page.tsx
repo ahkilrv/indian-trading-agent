@@ -4,6 +4,7 @@ import { useState, Suspense, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAnalysisStore } from "@/lib/store";
 import { DecisionCard } from "@/components/analysis/DecisionCard";
+import { DecisionReasoning } from "@/components/analysis/DecisionReasoning";
 import { AgentProgress } from "@/components/analysis/AgentProgress";
 import { ReportPanel } from "@/components/analysis/ReportPanel";
 import { DebateView } from "@/components/analysis/DebateView";
@@ -227,12 +228,17 @@ function AnalysisPageInner() {
 
       {/* Decision Card */}
       {analysis.signal && (
-        <DecisionCard
-          signal={analysis.signal}
-          ticker={displayTicker}
-          duration={analysis.duration}
-          portfolioPayload={analysis.structuredPayloads?.portfolio_manager || null}
-        />
+        <>
+          <DecisionCard
+            signal={analysis.signal}
+            ticker={displayTicker}
+            duration={analysis.duration}
+            portfolioPayload={analysis.structuredPayloads?.portfolio_manager || null}
+          />
+          {analysis.status === "completed" && (
+            <DecisionReasoning payloads={analysis.structuredPayloads} signal={analysis.signal} />
+          )}
+        </>
       )}
 
       {/* Stats Card */}
