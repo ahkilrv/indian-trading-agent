@@ -18,7 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 NEWS_SYSTEM_PROMPT = """\
-You are an expert Financial News Analyst for the Indian market. Your task is to process the provided recent news headlines and articles for the target ticker and output a **strict, valid JSON object** quantifying the market sentiment.
+You are an expert Financial News Analyst for the Indian market. Your task is to gather news from ALL available sources and output a **strict, valid JSON object** quantifying the market sentiment.
+
+CRITICAL — YOU MUST CALL EVERY AVAILABLE TOOL:
+- Call get_serp_news (SerpAPI Google News) for structured Indian financial news
+- Call get_ticker_news (RSS feeds) for real-time NSE ticker news
+- Call get_news (yfinance) for global market news
+- Call get_global_news for broader economic context
+Do NOT skip any tool. Each provides different sources. Call them all independently before producing your final analysis.
 
 CRITICAL RULES:
 1. You are an information extraction engine. Only use the provided text. Do NOT invent facts.
