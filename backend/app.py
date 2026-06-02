@@ -75,6 +75,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── CORS helper for Vercel preview domains ─────────────────────────
+# Starlette 1.x removed allow_origin_regex, so we add a small middleware
+# that permits any *.vercel.app origin on top of the static list above.
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class _VercelCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "")
+        is_vercel = origin and ".vercel.app" in origin
+        is_local = origin and ("localhost" in origin or "127.0.0.1" in origin)
+
+        if is_vercel or is_local:
+            # Handle OPTIONS preflight before CORSMiddleware gets it
+            if request.method == "OPTIONS":
+                headers = {
+                    "Access-Control-Allow-Origin": origin,
+                    "Access-Control-Allow-Credentials": "true",
+                    "Access-Control-Allow-Methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                    "Access-Control-Max-Age": "600",
+                }
+                return Response(status_code=200, headers=headers)
+
+            response: Response = await call_next(request)
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            return response
+
+        return await call_next(request)
+
+app.add_middleware(_VercelCORSMiddleware)
+
 app.include_router(market_data.router)
 app.include_router(analysis.router)
 app.include_router(watchlist.router)
