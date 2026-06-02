@@ -21,6 +21,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 type Signal = { type: string; direction: string; value: string; weight: number };
 type ShadowTrade = {
@@ -295,7 +296,7 @@ export default function ShadowTradesPage() {
                 {list?.trades.map((t) => (
                   <tr key={`${t.ticker}-${t.signal_date}`} className="border-b hover:bg-muted/30">
                     <td className="px-4 py-2 font-mono text-xs">{t.signal_date}</td>
-                    <td className="px-2 py-2 font-semibold">{t.ticker}</td>
+                    <td className="px-2 py-2 font-semibold">{t.ticker} <TradingViewLink ticker={t.ticker} className="ml-1" /></td>
                     <td className="px-2 py-2">
                       <Badge variant="outline" className={t.signal === "STRONG BUY" ? "bg-green-100 text-green-800 border-green-300 text-xs" : "bg-blue-50 text-blue-700 border-blue-200 text-xs"}>
                         {t.signal}

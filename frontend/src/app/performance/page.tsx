@@ -12,6 +12,7 @@ import { HelpSection } from "@/components/HelpSection";
 import { Loader2, TrendingUp, TrendingDown, Zap, ArrowUpRight, Volume2, Target, Award, AlertTriangle, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { NextStep } from "@/components/NextStep";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 const performanceHelp = [
   {
@@ -280,7 +281,7 @@ export default function PerformancePage() {
                       <TableBody>
                         {(data.trades || []).slice(0, 50).map((t: any, i: number) => (
                           <TableRow key={i}>
-                            <TableCell className="font-medium">{t.ticker}</TableCell>
+                            <TableCell className="font-medium">{t.ticker} <TradingViewLink ticker={t.ticker} className="ml-1" /></TableCell>
                             <TableCell className="text-sm text-muted-foreground">{t.date}</TableCell>
                             <TableCell>
                               <Badge variant="outline" className={t.direction === "LONG" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}>

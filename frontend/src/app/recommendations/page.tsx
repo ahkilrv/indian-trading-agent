@@ -12,6 +12,7 @@ import { Loader2, TrendingUp, TrendingDown, Sparkles, ChevronDown, ChevronUp, Ta
 import Link from "next/link";
 import { toast } from "sonner";
 import { NextStep } from "@/components/NextStep";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 const recommendationsHelp = [
   {
@@ -72,7 +73,7 @@ function RecommendationCard({ rec }: { rec: any }) {
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-semibold text-lg">{rec.ticker}</h3>
+                <h3 className="font-semibold text-lg">{rec.ticker} <TradingViewLink ticker={rec.ticker} className="ml-1" /></h3>
                 <span className={`text-sm ${rec.change_pct >= 0 ? "text-green-600" : "text-red-600"}`}>
                   Rs.{rec.price} ({rec.change_pct >= 0 ? "+" : ""}{rec.change_pct}%)
                 </span>

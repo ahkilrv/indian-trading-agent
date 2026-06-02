@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { searchStocks } from "@/lib/api";
 import { Input } from "@/components/ui/input";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 interface Props {
   value: string;
@@ -91,7 +92,7 @@ export function TickerSearch({ value, onChange, placeholder, disabled, className
               className="w-full text-left px-3 py-2 hover:bg-muted flex items-center justify-between text-sm"
             >
               <div>
-                <span className="font-sans font-semibold">{r.ticker}</span>
+                <span className="font-sans font-semibold">{r.ticker} <TradingViewLink ticker={r.ticker} className="ml-1" /></span>
                 <span className="text-muted-foreground ml-2">{r.name}</span>
               </div>
               <span className="text-xs text-muted-foreground">{r.symbol}</span>

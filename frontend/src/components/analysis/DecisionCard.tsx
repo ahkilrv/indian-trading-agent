@@ -2,6 +2,7 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Target, Shield, Flag, Clock, Percent } from "lucide-react";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 const signalConfig: Record<string, { color: string; bg: string; icon: any; label: string }> = {
   BUY: { color: "text-green-400", bg: "bg-green-500/10 border-green-500/30", icon: TrendingUp, label: "BUY" },
@@ -58,6 +59,7 @@ export function DecisionCard({ signal, ticker, duration, portfolioPayload }: Pro
             <p className="text-sm text-muted-foreground">Final Decision</p>
             <p className={`text-2xl font-bold ${config.color}`}>
               {ticker} — {signal}
+              <TradingViewLink ticker={ticker} className="ml-2 align-middle" />
             </p>
             {(pm?.time_horizon || pm?.risk_reward_ratio) && (
               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">

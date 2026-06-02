@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, X, TrendingUp, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 export function Watchlist() {
   const [items, setItems] = useState<WatchlistItem[]>([]);
@@ -92,6 +93,7 @@ export function Watchlist() {
                     <Link href={`/analysis?ticker=${item.ticker}`} className="hover:underline">
                       <div>
                         <span className="font-medium text-sm">{item.ticker}</span>
+                        <TradingViewLink ticker={item.ticker} className="ml-1" />
                         <span className="text-xs text-muted-foreground block">{item.name}</span>
                       </div>
                     </Link>

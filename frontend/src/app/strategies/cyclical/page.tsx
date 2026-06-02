@@ -13,6 +13,7 @@ import { HelpSection } from "@/components/HelpSection";
 import { Loader2, BarChart3, TrendingUp, TrendingDown, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 function generateInsight(data: any): string {
   if (!data || !data.months || data.months.length === 0) return "";

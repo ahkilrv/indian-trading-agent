@@ -7,6 +7,7 @@ import { DecisionCard } from "@/components/analysis/DecisionCard";
 import { ReportPanel } from "@/components/analysis/ReportPanel";
 import { DebateView } from "@/components/analysis/DebateView";
 import type { AnalysisResult } from "@/lib/types";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 export default function AnalysisDetailPage() {
   const params = useParams();
@@ -42,7 +43,7 @@ export default function AnalysisDetailPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">{result.ticker} Analysis</h1>
+        <h1 className="text-2xl font-bold">{result.ticker} Analysis <TradingViewLink ticker={result.ticker} className="ml-1 align-middle" /></h1>
         <p className="text-sm text-muted-foreground">Date: {result.trade_date} | Task: {result.task_id}</p>
       </div>
 

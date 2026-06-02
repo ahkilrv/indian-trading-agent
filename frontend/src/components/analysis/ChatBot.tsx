@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Loader2, MessageSquare, X, Send, Bot, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { sendChatMessage } from "@/lib/api";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 interface ChatMessage {
   role: "user" | "assistant";

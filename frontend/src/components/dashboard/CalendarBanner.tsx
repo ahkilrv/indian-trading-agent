@@ -5,6 +5,7 @@ import { getCalendarToday, getCalendarUpcoming } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TradingViewLink } from "@/components/TradingViewLink";
 import {
   Calendar,
   AlertTriangle,
@@ -177,7 +178,7 @@ export function CalendarBanner() {
                           <div className="flex items-center gap-2">
                             <Icon className={`h-3 w-3 ${style.text}`} />
                             <span className={style.text}>{e.name}</span>
-                            {e.ticker && <Badge variant="outline" className="text-xs">{e.ticker}</Badge>}
+                            {e.ticker && <Badge variant="outline" className="text-xs">{e.ticker} <TradingViewLink ticker={e.ticker} className="ml-0.5" /></Badge>}
                           </div>
                           <span className="text-xs text-muted-foreground">
                             {formatDateRelative(dateStr)}

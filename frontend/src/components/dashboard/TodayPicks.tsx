@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, TrendingUp, TrendingDown, Sparkles, RefreshCw, ArrowRight, Bell, Star, FlaskConical } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
   const [loading, setLoading] = useState(true);
@@ -120,7 +121,7 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
                   <TrendingUp className="h-4 w-4 text-green-600 flex-shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold">{pick.ticker}</span>
+                      <span className="font-semibold">{pick.ticker} <TradingViewLink ticker={pick.ticker} className="ml-0.5" /></span>
                       {watchlistTickers.includes(pick.ticker) && (
                         <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-xs">
                           <Star className="h-2.5 w-2.5 mr-0.5 fill-yellow-600" />
@@ -195,7 +196,7 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
                   <TrendingDown className="h-4 w-4 text-red-600 flex-shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold">{pick.ticker}</span>
+                      <span className="font-semibold">{pick.ticker} <TradingViewLink ticker={pick.ticker} className="ml-0.5" /></span>
                       <span className="text-sm text-muted-foreground">Rs.{pick.price}</span>
                       <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 text-xs">
                         {pick.direction}

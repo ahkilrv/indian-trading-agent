@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Brain, DollarSign, Clock, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { PnLDialog } from "@/components/history/PnLDialog";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 const signalColors: Record<string, string> = {
   BUY: "bg-green-500/20 text-green-400",
@@ -175,7 +176,7 @@ export default function HistoryPage() {
                           <TableCell className="text-sm">
                             {a.created_at ? new Date(a.created_at).toLocaleDateString() : "-"}
                           </TableCell>
-                          <TableCell className="font-medium">{a.ticker}</TableCell>
+                          <TableCell className="font-medium">{a.ticker} <TradingViewLink ticker={a.ticker} className="ml-1" /></TableCell>
                           <TableCell className="text-sm">{a.trade_date}</TableCell>
                           <TableCell>
                             <Badge variant="outline" className={signalColors[a.signal] || ""}>

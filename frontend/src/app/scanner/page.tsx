@@ -15,6 +15,7 @@ import { scannerHelp } from "@/lib/help-content";
 import { NextStep } from "@/components/NextStep";
 import { Sparkles } from "lucide-react";
 import Link from "next/link";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 export default function ScannerPage() {
   const [universe, setUniverse] = useState("nifty50");
@@ -223,7 +224,7 @@ export default function ScannerPage() {
                           <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No gaps found</TableCell></TableRow>
                         ) : gapResults.map((r: any) => (
                           <TableRow key={r.ticker}>
-                            <TableCell className="font-sans font-medium">{r.ticker}</TableCell>
+                            <TableCell className="font-sans font-medium">{r.ticker} <TradingViewLink ticker={r.ticker} className="ml-1" /></TableCell>
                             <TableCell>
                               <Badge className={r.direction === "UP" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
                                 {r.direction === "UP" ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
@@ -283,7 +284,7 @@ export default function ScannerPage() {
                           <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No volume spikes found</TableCell></TableRow>
                         ) : volumeResults.map((r: any) => (
                           <TableRow key={r.ticker}>
-                            <TableCell className="font-sans font-medium">{r.ticker}</TableCell>
+                            <TableCell className="font-sans font-medium">{r.ticker} <TradingViewLink ticker={r.ticker} className="ml-1" /></TableCell>
                             <TableCell>
                               <Badge className={r.direction === "BULLISH" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
                                 {r.direction}
@@ -337,7 +338,7 @@ export default function ScannerPage() {
                           <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No breakouts found</TableCell></TableRow>
                         ) : breakoutResults.map((r: any) => (
                           <TableRow key={r.ticker}>
-                            <TableCell className="font-sans font-medium">{r.ticker}</TableCell>
+                            <TableCell className="font-sans font-medium">{r.ticker} <TradingViewLink ticker={r.ticker} className="ml-1" /></TableCell>
                             <TableCell className="text-right font-sans">₹{r.price}</TableCell>
                             <TableCell className="text-right font-sans text-muted-foreground">₹{r.breakout_level}</TableCell>
                             <TableCell className="text-right font-sans text-green-600">+{r.breakout_pct}%</TableCell>

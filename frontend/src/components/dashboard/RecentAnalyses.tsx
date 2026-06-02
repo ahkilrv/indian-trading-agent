@@ -6,6 +6,7 @@ import type { AnalysisHistoryItem } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 const signalColors: Record<string, string> = {
   BUY: "bg-green-500/20 text-green-400 border-green-500/30",
@@ -39,7 +40,7 @@ export function RecentAnalyses() {
             <Link key={a.task_id} href={`/analysis/${a.task_id}`}>
               <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
                 <div>
-                  <span className="font-medium">{a.ticker}</span>
+                  <span className="font-medium">{a.ticker} <TradingViewLink ticker={a.ticker} className="ml-0.5" /></span>
                   <span className="text-xs text-muted-foreground ml-2">{a.trade_date}</span>
                 </div>
                 <div className="flex items-center gap-2">

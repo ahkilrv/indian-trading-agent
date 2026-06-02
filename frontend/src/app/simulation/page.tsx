@@ -38,6 +38,7 @@ import {
   Brain,
 } from "lucide-react";
 import { toast } from "sonner";
+import { TradingViewLink } from "@/components/TradingViewLink";
 
 const simulationHelp = [
   {
@@ -105,7 +106,7 @@ function PaperTradeRow({ t, onClose, onDelete }: { t: any; onClose: (id: number)
           )}
         </TableCell>
         <TableCell className="text-xs">{t.entry_date}</TableCell>
-        <TableCell className="font-medium">{t.ticker}</TableCell>
+        <TableCell className="font-medium">{t.ticker} <TradingViewLink ticker={t.ticker} className="ml-1" /></TableCell>
         <TableCell>
           <Badge variant="outline" className={`text-xs ${src.color}`}>
             <SrcIcon className="h-2.5 w-2.5 mr-1" />
@@ -720,7 +721,7 @@ export default function SimulationPage() {
                           {bt_result.rows.slice(0, 100).map((r: any, i: number) => (
                             <TableRow key={i}>
                               <TableCell className="text-xs">{r.trade_date}</TableCell>
-                              <TableCell className="font-medium">{r.ticker}</TableCell>
+                              <TableCell className="font-medium">{r.ticker} <TradingViewLink ticker={r.ticker} className="ml-1" /></TableCell>
                               <TableCell>
                                 <Badge variant="outline" className={signalColors[r.signal] || ""}>{r.signal}</Badge>
                               </TableCell>
