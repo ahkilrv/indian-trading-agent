@@ -227,7 +227,12 @@ function AnalysisPageInner() {
 
       {/* Decision Card */}
       {analysis.signal && (
-        <DecisionCard signal={analysis.signal} ticker={displayTicker} duration={analysis.duration} />
+        <DecisionCard
+          signal={analysis.signal}
+          ticker={displayTicker}
+          duration={analysis.duration}
+          portfolioPayload={analysis.structuredPayloads?.portfolio_manager || null}
+        />
       )}
 
       {/* Stats Card */}
