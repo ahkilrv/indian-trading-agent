@@ -31,3 +31,5 @@ tqdm>=4.67.0,<5.0
 typing-extensions>=4.14.0,<5.0
 pytz>=2025.2
 python-Levenshtein>=0.27.0
+stockstats>=0.6.5
+rank-bm25>=0.2.2
