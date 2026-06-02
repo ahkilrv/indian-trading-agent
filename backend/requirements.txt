@@ -16,8 +16,8 @@ feedparser>=6.0
 python-dotenv>=1.0.0
 
 # ── Indian Market Data ──────────────────────────────
-nsepython>=2.0
-fyers-apiv3>=3.0.0
+# nsepython is optional (broken with Akamai); fyers-apiv3 not needed for cloud deploy
+# Install locally only: pip install nsepython fyers-apiv3
 
 # ── LLM / AI Framework ──────────────────────────────
 langchain-core>=0.3.81

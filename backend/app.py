@@ -62,7 +62,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=lambda: [
+    allow_origins=[
         o.strip()
         for o in os.environ.get(
             "CORS_ORIGINS",
