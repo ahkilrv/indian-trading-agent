@@ -1,17 +1,35 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: { "Content-Type": "application/json", ...options?.headers },
-    });
-  } catch {
-    throw new Error(`Cannot connect to backend at ${API_BASE}. Is it running?`);
+  const TIMEOUT = 30000; // 30s timeout (Render free tier cold start)
+  const MAX_RETRIES = 2;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT);
+
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json", ...options?.headers },
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
+      return res.json();
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(`Request timed out after ${TIMEOUT / 1000}s — backend may be starting up. Try again in 30s.`);
+      }
+      if (attempt === MAX_RETRIES) {
+        throw new Error(`Cannot connect to backend at ${API_BASE}. Is it running?`);
+      }
+      // Wait before retry (exponential backoff)
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
   }
-  if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
-  return res.json();
+  throw new Error(`Cannot connect to backend at ${API_BASE}. Is it running?`);
 }
 
 // Market Data
