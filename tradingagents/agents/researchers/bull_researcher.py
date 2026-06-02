@@ -4,6 +4,7 @@ from tradingagents.agents.analysts.schemas import (
     format_analysis_for_prompt,
     ResearcherPayload,
     RESEARCHER_SCHEMA_PROMPT,
+    extract_and_validate,
 )
 
 logger = logging.getLogger(__name__)
@@ -96,23 +97,24 @@ Past reflections and lessons: {past_memory_str}
         response = json_llm.invoke(prompt)
         raw_output = response.content if hasattr(response, "content") else str(response)
 
-        # Parse and validate the structured JSON payload
+        # Parse and validate the structured JSON payload — use extract_and_validate
+        # for 3-strategy extraction (more robust than direct model_validate_json)
         bull_payload = None
         argument = f"Bull Analyst: {raw_output}"
 
-        try:
-            parsed = ResearcherPayload.model_validate_json(raw_output)
-            bull_payload = parsed.model_dump()
+        bull_payload = extract_and_validate(raw_output, ResearcherPayload, ticker=ticker)
+        if bull_payload:
+            p = bull_payload
             argument = (
-                f"Bull Analyst (PERMABULL) — Thesis: {parsed.thesis_summary}\n"
-                f"Catalyst: {parsed.primary_catalyst} | "
-                f"Target: ₹{parsed.target_price} | "
-                f"Confidence: {parsed.confidence_score:.0%}\n"
-                f"Ignored Risk: {parsed.fatal_flaw_ignored}"
+                f"Bull Analyst (PERMABULL) — Thesis: {p.get('thesis_summary', '')}\n"
+                f"Catalyst: {p.get('primary_catalyst', '')} | "
+                f"Target: ₹{p.get('target_price', '')} | "
+                f"Confidence: {float(p.get('confidence_score', 0)):.0%}\n"
+                f"Ignored Risk: {p.get('fatal_flaw_ignored', '')}"
             )
             logger.info("Bull Researcher returned valid structured payload for %s", ticker)
-        except Exception as exc:
-            logger.warning("Bull Researcher payload validation failed for %s: %s", ticker, exc)
+        else:
+            logger.warning("Bull Researcher payload validation failed for %s", ticker)
 
         new_investment_debate_state = {
             "history": history + "\n" + argument,
