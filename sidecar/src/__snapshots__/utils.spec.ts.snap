@@ -1,0 +1,65 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Utils getDataSchema for date value having typeStrict:false 1`] = `
+[
+  "a: any",
+  "b: any",
+  {
+    "c": "any",
+  },
+  {
+    "d": [
+      "a: any",
+      {
+        "b": "any",
+      },
+      {
+        "c": [
+          "d: any",
+        ],
+      },
+      {
+        "e": "any",
+      },
+    ],
+  },
+  "e: any",
+  {
+    "f": "any",
+  },
+]
+`;
+
+exports[`Utils getDataSchema for date value having typeStrict:false: array_validation 1`] = `"any"`;
+
+exports[`Utils getDataSchema with type strict 1`] = `
+[
+  "a: number",
+  "b: string | null",
+  {
+    "c": "number",
+  },
+  {
+    "d": [
+      "a: number",
+      {
+        "b": "number",
+      },
+      {
+        "c": [
+          "d: number",
+        ],
+      },
+      {
+        "e": [],
+      },
+    ],
+  },
+  "e: Date",
+  {
+    "f": "number[]",
+  },
+]
+`;
+
+exports[`Utils getDataSchema with type strict: array_validation 1`] = `"string[]"`;

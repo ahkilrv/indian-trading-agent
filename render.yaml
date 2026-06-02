@@ -1,10 +1,9 @@
 services:
-  # FastAPI backend with WebSocket support
+  # FastAPI backend + NSE sidecar (Docker multi-stage)
   - type: web
     name: trading-agent-backend
-    runtime: python
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    runtime: docker
+    plan: free
     envVars:
       - key: CORS_ORIGINS
         sync: false
@@ -21,11 +20,10 @@ services:
       - key: FYERS_SECRET_KEY
         sync: false
       - key: NSE_SIDECAR_URL
-        sync: false
+        value: http://localhost:3000
       - key: FRONTEND_URL
         sync: false
     disk:
       name: data
       mountPath: /var/data
       sizeGB: 1
-    plan: free

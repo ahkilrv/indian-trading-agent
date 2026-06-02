@@ -1,0 +1,50 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Frontend (not needed in Docker)
+frontend/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Node (sidecar has its own node_modules)
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp/
+*.log
+
+# Env
+.env
+.env.local
+
+# Render/Vercel configs (only used for deployment, not in image)
+render.yaml
+vercel.json
+
+# Tests
+tests/
+spec/
+*.spec.ts
+*.spec.js
+
+# Docs
+*.md
+docs/
