@@ -364,18 +364,36 @@ def debug_data_sources(ticker: str):
     # 2. Fundamentals (Alpha Vantage → yfinance)
     try:
         raw = route_to_vendor("get_fundamentals", symbol, now.strftime("%Y-%m-%d"))
-        if isinstance(raw, str):
-            import json
-            data = json.loads(raw) if raw.strip().startswith("{") else {"raw_preview": raw[:200]}
+        is_json = isinstance(raw, dict) or (isinstance(raw, str) and raw.strip().startswith("{"))
+        if is_json:
+            if isinstance(raw, str):
+                import json
+                data = json.loads(raw)
+            else:
+                data = raw
+            results["get_fundamentals"] = {
+                "status": "OK",
+                "name": data.get("Name") or data.get("shortName", "(no name)"),
+                "sector": data.get("Sector") or data.get("sector"),
+                "pe": data.get("PERatio") or data.get("trailingPE"),
+                "data_format": "json",
+            }
         else:
-            data = raw
-        results["get_fundamentals"] = {
-            "status": "OK",
-            "name": data.get("Name") or data.get("shortName", "(no name field)"),
-            "sector": data.get("Sector") or data.get("sector"),
-            "pe": data.get("PERatio") or data.get("trailingPE"),
-            "vendors": list(VENDOR_METHODS.get("get_fundamentals", {}).keys()),
-        }
+            preview = raw[:300] if isinstance(raw, str) else str(raw)[:300]
+            ticker_name = ""
+            pe_val = None
+            for line in preview.split("\n"):
+                if line.startswith("Name:"):
+                    ticker_name = line.split(":", 1)[1].strip()
+                elif "PE Ratio" in line:
+                    pe_val = line.split(":", 1)[1].strip() if ":" in line else None
+            results["get_fundamentals"] = {
+                "status": "OK",
+                "name": ticker_name or "yfinance text format",
+                "pe": pe_val,
+                "data_format": "yfinance_text",
+                "preview": preview,
+            }
     except Exception as e:
         results["get_fundamentals"] = {"status": "FAIL", "error": str(e), "vendors": list(VENDOR_METHODS.get("get_fundamentals", {}).keys())}
 
