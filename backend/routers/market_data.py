@@ -353,7 +353,7 @@ def _parse_fundamentals(raw):
                     key, val = line.split(": ", 1)
                     mapped = _YF_FIELD_MAP.get(key)
                     if mapped:
-                        d[mapped] = val if mapped in ("name", "sector", "industry") else _safe_float(val)
+                        d[mapped] = val if mapped in ("name", "sector", "industry", "data_source") else _safe_float(val)
             if d.get("name") or d.get("pe_ratio") or d.get("market_cap"):
                 return d
     return {}
@@ -372,8 +372,11 @@ def _safe_float(val):
     """Convert a value to float, return None if not possible."""
     if val is None:
         return None
+    s = str(val).replace(",", "").strip().rstrip("%")
+    if not s:
+        return None
     try:
-        return float(str(val).replace(",", ""))
+        return float(s)
     except (ValueError, TypeError):
         return None
 
