@@ -7,11 +7,13 @@ For each stock in the universe:
 4. Return top-ranked opportunities with clear BUY/SELL/HOLD recommendations
 """
 
-import yfinance as yf
 import numpy as np
-from datetime import datetime
+import pandas as pd
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import StringIO
 from backend.scanner import NIFTY_50, NIFTY_100, BSE_250, UNIVERSES
+from tradingagents.dataflows.interface import route_to_vendor
 
 
 # Historical win rates (baseline — will be overridden by live performance data if available)
@@ -94,8 +96,10 @@ def _analyze_stock(ticker: str) -> dict | None:
     """Analyze a single stock and return signals + score."""
     try:
         symbol = f"{ticker}.NS"
-        t = yf.Ticker(symbol)
-        hist = t.history(period="6mo")
+        end = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
+        csv_str = route_to_vendor("get_stock_data", ticker, start, end)
+        hist = pd.read_csv(StringIO(csv_str), comment="#", parse_dates=["Date"])
         if hist.empty or len(hist) < 50:
             return None
 
@@ -194,7 +198,7 @@ def _analyze_stock(ticker: str) -> dict | None:
         # === CYCLICAL (MONTHLY) ===
         current_month = datetime.now().month
         hist_copy = hist.copy()
-        hist_copy["Month"] = hist_copy.index.month
+        hist_copy["Month"] = hist_copy["Date"].dt.month if "Date" in hist_copy.columns else hist_copy.index.month
         hist_copy["MonthlyReturn"] = hist_copy["Close"].pct_change()
         month_data = hist_copy[hist_copy["Month"] == current_month]["MonthlyReturn"].dropna()
         if len(month_data) > 10:
