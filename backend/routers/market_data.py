@@ -268,8 +268,24 @@ def get_fundamentals(ticker: str):
 
     return {
         "ticker": symbol,
-        "error": "Fundamentals unavailable from all sources",
-        "data_source": "Alpha Vantage",
+        "name": symbol.removesuffix(".NS").removesuffix(".BO"),
+        "sector": None,
+        "industry": None,
+        "market_cap": None,
+        "pe_ratio": None,
+        "forward_pe": None,
+        "pb_ratio": None,
+        "dividend_yield": None,
+        "eps": None,
+        "roe": None,
+        "debt_to_equity": None,
+        "revenue": None,
+        "profit_margin": None,
+        "fifty_two_week_high": None,
+        "fifty_two_week_low": None,
+        "beta": None,
+        "data_source": None,
+        "note": "Fundamentals temporarily unavailable — yfinance rate-limited on Render IP. Try again later or use AI Analysis for agent-driven fundamentals.",
     }
 
 
