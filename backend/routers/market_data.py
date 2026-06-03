@@ -304,6 +304,9 @@ _YF_FIELD_MAP = {
     "Return on Equity": "roe", "Return on Assets": "roa",
     "Debt to Equity": "debt_to_equity", "Current Ratio": "current_ratio",
     "Book Value": "book_value", "Free Cash Flow": "free_cash_flow",
+    "Stock P/E": "pe_ratio", "Book Value": "book_value",
+    "ROCE": "roce", "Face Value": "face_value",
+    "High / Low": "high_low",
 }
 
 _AV_FIELD_MAP = {
@@ -335,7 +338,7 @@ def _parse_fundamentals(raw):
                     return _remap_fields(data, _AV_FIELD_MAP, "Alpha Vantage")
             except json.JSONDecodeError:
                 pass
-        # Fallback: yfinance text format
+        # Fallback: yfinance / screener text format
         if raw.startswith("# Company Fundamentals"):
             d = {"data_source": "yfinance"}
             for line in raw.split("\n"):
@@ -344,8 +347,8 @@ def _parse_fundamentals(raw):
                     key, val = line.split(": ", 1)
                     mapped = _YF_FIELD_MAP.get(key)
                     if mapped:
-                        d[mapped] = _safe_float(val)
-            if d.get("name"):
+                        d[mapped] = val if mapped in ("name", "sector", "industry") else _safe_float(val)
+            if d.get("name") or d.get("pe_ratio") or d.get("market_cap"):
                 return d
     return {}
 

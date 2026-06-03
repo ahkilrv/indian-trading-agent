@@ -25,7 +25,7 @@ DEFAULT_CONFIG = {
     "data_vendors": {
         "core_stock_apis": "dhan,nse_http,yfinance",
         "technical_indicators": "dhan,nse_http,yfinance",
-        "fundamental_data": "alpha_vantage,yfinance",
+        "fundamental_data": "screener,yfinance",
         "news_data": "alpha_vantage,yfinance",
         "indian_market_data": "nse",
     },

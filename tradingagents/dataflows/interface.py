@@ -51,6 +51,9 @@ from .serp_youtube import get_youtube_sentiment_data
 from .serp_finance import get_google_finance_data
 from .serp_forums import get_forums_sentiment_data
 
+# Import Screener.in fundamentals
+from .screener_fundamentals import get_screener_fundamentals
+
 # Configuration and routing logic
 from .config import get_config
 
@@ -156,6 +159,7 @@ VENDOR_METHODS = {
     },
     # fundamental_data
     "get_fundamentals": {
+        "screener": get_screener_fundamentals,
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
     },
