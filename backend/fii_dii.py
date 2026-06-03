@@ -305,6 +305,20 @@ def get_today_data(force_refresh: bool = False) -> Optional[dict]:
         save_data(data)
         return get_data_for_date(data["date"])
 
+    # Fallback: return most recent record even if not today
+    # (handles the case where today's data isn't published yet, e.g. before ~4:30 PM)
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM fii_dii_history ORDER BY date DESC LIMIT 1"
+        ).fetchall()
+        if rows:
+            latest = rows[0]
+            logger.info(
+                "No fresh FII/DII data — returning most recent from %s",
+                latest["date"],
+            )
+            return latest
+
     return None
 
 
