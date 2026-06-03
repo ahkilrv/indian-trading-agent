@@ -33,30 +33,30 @@ function formatCr(value: number | null | undefined): string {
 
 export function FIIDIIBanner() {
   const [bias, setBias] = useState<any>(null);
-  const [data, setData] = useState<any>(null);
+  const [today, setToday] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  const load = async () => {
+  const load = async (force: boolean = false) => {
     setLoading(true);
     try {
-      const [biasRes, dataRes]: any[] = await Promise.all([
+      const [dataRes, biasRes] = await Promise.all([
+        getFiiDiiToday(force).catch(() => null),
         getFiiDiiBias().catch(() => null),
-        getFiiDiiToday().catch(() => null),
       ]);
+      setToday(dataRes);
       setBias(biasRes);
-      setData(dataRes);
-    } catch {}
+    } catch {
+      setToday(null);
+      setBias(null);
+    }
     setLoading(false);
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try {
-      await getFiiDiiToday(true);
-      await load();
-    } catch {}
+    await load(true);
     setRefreshing(false);
   };
 
@@ -75,13 +75,22 @@ export function FIIDIIBanner() {
     );
   }
 
-  if (!bias || !bias.today_fii_net) {
+  // Derive today's values: prefer today endpoint, fall back to bias
+  const fiiToday: number | null = today?.fii_net ?? bias?.today_fii_net ?? null;
+  const diiToday: number | null = today?.dii_net ?? bias?.today_dii_net ?? null;
+  const dataDate: string | null = today?.date ?? bias?.data_date ?? null;
+  const source: string | null = today?.source ?? null;
+
+  // Show error only if BOTH endpoints returned nothing
+  if (!today?.ok && fiiToday == null && diiToday == null) {
     return (
       <Card className="border-yellow-200 bg-yellow-50/30">
         <CardContent className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm">
             <AlertCircle className="h-4 w-4 text-yellow-700" />
-            <span className="text-yellow-800">FII/DII data unavailable. NSE may be blocking requests right now.</span>
+            <span className="text-yellow-800">
+              FII/DII data unavailable. Moneycontrol may not have published today's data yet (typically available by ~5:30 PM).
+            </span>
           </div>
           <Button size="sm" variant="outline" onClick={handleRefresh} disabled={refreshing}>
             {refreshing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
@@ -92,11 +101,16 @@ export function FIIDIIBanner() {
     );
   }
 
-  const style = biasColors[bias.bias] || biasColors.NEUTRAL;
+  // When today's data exists but bias computation couldn't (first load / no history),
+  // create a minimal bias to avoid crashing on null fields
+  const resolvedBias = bias ?? {};
+  const style = biasColors[resolvedBias.bias] || (fiiToday != null && fiiToday < 0 ? biasColors.BEARISH : biasColors.NEUTRAL);
   const Icon = style.icon;
-
-  const fiiToday = bias.today_fii_net;
-  const diiToday = bias.today_dii_net;
+  const confidence = resolvedBias.confidence ?? "—";
+  const reasoning = resolvedBias.reasoning ?? null;
+  const fii5d: number | null = resolvedBias.fii_5d_net ?? null;
+  const dii5d: number | null = resolvedBias.dii_5d_net ?? null;
+  const scoreAdj: number | null = resolvedBias.score_adjustment ?? null;
 
   return (
     <Card className={`${style.border} ${style.bg}`}>
@@ -107,53 +121,62 @@ export function FIIDIIBanner() {
               <Building2 className={`h-5 w-5 ${style.text}`} />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Institutional Flow ({bias.data_date})</p>
+              <p className="text-xs text-muted-foreground">
+                Institutional Flow ({dataDate ?? "N/A"})
+                {source && <span className="ml-1 opacity-60">via {source}</span>}
+              </p>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-sm">FII: <span className={fiiToday >= 0 ? "text-green-700" : "text-red-700"}>{formatCr(fiiToday)}</span></span>
-                <span className="font-semibold text-sm">DII: <span className={diiToday >= 0 ? "text-green-700" : "text-red-700"}>{formatCr(diiToday)}</span></span>
-                <Badge variant="outline" className={`${style.text} border-current`}>
-                  <Icon className="h-3 w-3 mr-1" />
-                  {bias.bias} ({bias.confidence})
-                </Badge>
+                <span className="font-semibold text-sm">FII: <span className={fiiToday != null && fiiToday >= 0 ? "text-green-700" : "text-red-700"}>{formatCr(fiiToday)}</span></span>
+                <span className="font-semibold text-sm">DII: <span className={diiToday != null && diiToday >= 0 ? "text-green-700" : "text-red-700"}>{formatCr(diiToday)}</span></span>
+                {resolvedBias.bias && (
+                  <Badge variant="outline" className={`${style.text} border-current`}>
+                    <Icon className="h-3 w-3 mr-1" />
+                    {resolvedBias.bias} ({confidence})
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setExpanded(!expanded)}>
-              {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              Why
-            </Button>
-            <Button size="sm" variant="ghost" onClick={handleRefresh} disabled={refreshing} title="Refresh from NSE">
+            {reasoning && (
+              <Button size="sm" variant="ghost" onClick={() => setExpanded(!expanded)}>
+                {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                Why
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={handleRefresh} disabled={refreshing} title="Refresh data">
               {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             </Button>
           </div>
         </div>
 
-        {expanded && (
+        {expanded && reasoning && (
           <div className="mt-3 pt-3 border-t border-current/10 space-y-2 text-sm">
-            <p className={style.text}>{bias.reasoning}</p>
+            <p className={style.text}>{reasoning}</p>
             <div className="grid grid-cols-2 gap-3 mt-2">
               <div className="p-2 rounded bg-white/60">
                 <p className="text-xs text-muted-foreground">Today's FII Net</p>
-                <p className={`font-semibold ${fiiToday >= 0 ? "text-green-700" : "text-red-700"}`}>
+                <p className={`font-semibold ${fiiToday != null && fiiToday >= 0 ? "text-green-700" : "text-red-700"}`}>
                   {formatCr(fiiToday)}
                 </p>
-                <p className="text-xs text-muted-foreground">5-day: {formatCr(bias.fii_5d_net)}</p>
+                <p className="text-xs text-muted-foreground">5-day: {formatCr(fii5d)}</p>
               </div>
               <div className="p-2 rounded bg-white/60">
                 <p className="text-xs text-muted-foreground">Today's DII Net</p>
-                <p className={`font-semibold ${diiToday >= 0 ? "text-green-700" : "text-red-700"}`}>
+                <p className={`font-semibold ${diiToday != null && diiToday >= 0 ? "text-green-700" : "text-red-700"}`}>
                   {formatCr(diiToday)}
                 </p>
-                <p className="text-xs text-muted-foreground">5-day: {formatCr(bias.dii_5d_net)}</p>
+                <p className="text-xs text-muted-foreground">5-day: {formatCr(dii5d)}</p>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground italic">
-              The Recommendation Engine adjusts all stock scores by{" "}
-              <span className="font-mono">{bias.score_adjustment >= 0 ? "+" : ""}{bias.score_adjustment}</span> points based on this bias.
-              {bias.bias === "BEARISH" && " Be selective on long positions today."}
-              {bias.bias === "BULLISH" && " Tailwind for long positions today."}
-            </p>
+            {scoreAdj != null && (
+              <p className="text-xs text-muted-foreground italic">
+                The Recommendation Engine adjusts all stock scores by{" "}
+                <span className="font-mono">{scoreAdj >= 0 ? "+" : ""}{scoreAdj}</span> points based on this bias.
+                {resolvedBias.bias === "BEARISH" && " Be selective on long positions today."}
+                {resolvedBias.bias === "BULLISH" && " Tailwind for long positions today."}
+              </p>
+            )}
           </div>
         )}
       </CardContent>
