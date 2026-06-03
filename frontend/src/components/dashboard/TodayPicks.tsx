@@ -101,6 +101,16 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
           </div>
         )}
 
+        {!loading && !data && (
+          <div className="py-6 text-center">
+            <p className="text-sm text-muted-foreground">Recommendations unavailable right now.</p>
+            <p className="text-xs text-muted-foreground mt-1">Backend may be starting up — try refreshing.</p>
+            <Button variant="outline" size="sm" onClick={load} className="mt-3">
+              <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+            </Button>
+          </div>
+        )}
+
         {data && topPicks.length === 0 && topSells.length === 0 && (
           <div className="py-6 text-center">
             <p className="text-sm text-muted-foreground">No strong signals in the market right now.</p>

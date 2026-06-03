@@ -1,8 +1,8 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
-  const TIMEOUT = 30000; // 30s timeout (Render free tier cold start)
-  const MAX_RETRIES = 2;
+async function fetchAPI<T>(path: string, options?: RequestInit, timeoutMs?: number, maxRetries?: number): Promise<T> {
+  const TIMEOUT = timeoutMs ?? 30000;
+  const MAX_RETRIES = maxRetries ?? 2;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
@@ -238,7 +238,7 @@ export const listRecommenderBacktests = () =>
 
 // Recommendations
 export const getRecommendations = (universe = "nifty100", minSignals = 2) =>
-  fetchAPI(`/api/recommend/?universe=${universe}&min_signals=${minSignals}`);
+  fetchAPI(`/api/recommend/?universe=${universe}&min_signals=${minSignals}`, undefined, 90000, 1);
 export const analyzeRecommendation = (ticker: string) =>
   fetchAPI(`/api/recommend/stock/${ticker}`);
 

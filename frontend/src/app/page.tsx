@@ -64,7 +64,7 @@ export default function DashboardPage() {
       <ConcentrationWidget />
 
       {/* Today's Top Picks — auto-loaded */}
-      <TodayPicks universe="nifty100" />
+      <TodayPicks universe="nifty50" />
 
       {/* Sector Heatmap */}
       <SectorHeatmap />
