@@ -61,28 +61,71 @@ def _get_nse_session() -> requests.Session:
 
 
 def fetch_from_nse() -> Optional[dict]:
-    """Fetch latest FII/DII data from NSE via nsepython library.
+    """Fetch latest FII/DII data from NSE official JSON API.
+
+    Uses session-based cookies (not nsepython) — works from Indian IPs.
+    Falls back to nsepython library if installed.
 
     Returns:
         Dict with date, fii_buy/sell/net, dii_buy/sell/net — or None if failed.
     """
+    # Primary: direct JSON API with session cookies
+    try:
+        session = _get_nse_session()
+        resp = session.get(
+            "https://www.nseindia.com/api/fiidiiTradeReact",
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            result: dict = {
+                "fii_buy": 0, "fii_sell": 0, "fii_net": 0,
+                "dii_buy": 0, "dii_sell": 0, "dii_net": 0,
+                "source": "nse",
+            }
+            for cat_key in ("FII", "FPI", "DII"):
+                cat = data.get(cat_key)
+                if not cat:
+                    continue
+                cat_name = cat_key
+                buy = float(cat.get("buyValue", 0) or 0)
+                sell = float(cat.get("sellValue", 0) or 0)
+                net = float(cat.get("netValue", 0) or 0)
+                if "FII" in cat_name or "FPI" in cat_name:
+                    result["fii_buy"] = buy
+                    result["fii_sell"] = sell
+                    result["fii_net"] = net
+                elif "DII" in cat_name:
+                    result["dii_buy"] = buy
+                    result["dii_sell"] = sell
+                    result["dii_net"] = net
+            raw_date = data.get("date", "")
+            if raw_date:
+                try:
+                    parsed = datetime.strptime(raw_date.replace("-", " "), "%d %b %Y")
+                    result["date"] = parsed.strftime("%Y-%m-%d")
+                except Exception:
+                    result["date"] = date.today().strftime("%Y-%m-%d")
+            else:
+                result["date"] = date.today().strftime("%Y-%m-%d")
+            return result
+    except Exception as e:
+        print(f"[FII/DII] NSE JSON API failed: {e}", flush=True)
+
+    # Fallback: nsepython library
     try:
         from nsepython import nse_fiidii
 
         raw = nse_fiidii()
 
-        # nse_fiidii returns a stringified table — parse it
         entries = []
         if isinstance(raw, str):
             lines = [l for l in raw.strip().split("\n") if l.strip()]
             if len(lines) < 2:
                 return None
 
-            # Skip header line, parse data rows like:
-            # "0      DII  30-Apr-2026  18252.89  14765.79    3487.1"
             for line in lines[1:]:
                 parts = line.split()
-                # Drop leading index if it's a digit
                 if parts and parts[0].isdigit():
                     parts = parts[1:]
                 if len(parts) < 5:
@@ -144,26 +187,62 @@ def fetch_from_nse() -> Optional[dict]:
 
         result["source"] = "nse"
         return result
+    except ImportError:
+        pass
     except Exception as e:
-        print(f"[FII/DII] NSE fetch failed: {e}", flush=True)
-        return None
+        print(f"[FII/DII] nsepython fallback failed: {e}", flush=True)
+
+    return None
 
 
 def fetch_from_moneycontrol() -> Optional[dict]:
-    """Fallback: scrape moneycontrol's FII/DII data."""
+    """Fallback: scrape FII/DII data from Moneycontrol."""
     try:
         url = "https://www.moneycontrol.com/stocks/marketstats/fii_dii_activity/index.php"
         resp = requests.get(url, headers={"User-Agent": NSE_HEADERS["User-Agent"]}, timeout=15)
         if resp.status_code != 200:
             return None
 
-        # Simple pattern match for the values (this is fragile but works as fallback)
-        # Production version would use BeautifulSoup
         text = resp.text
-        # Look for patterns like "FII"..."Net"..."-2,453.45" etc.
-        # For now, return None and let manual entry handle it
-        return None
-    except Exception:
+
+        result: dict = {
+            "fii_buy": 0, "fii_sell": 0, "fii_net": 0,
+            "dii_buy": 0, "dii_sell": 0, "dii_net": 0,
+            "source": "moneycontrol",
+            "date": date.today().strftime("%Y-%m-%d"),
+        }
+
+        # Find the FII/DII table — look for patterns like:
+        # FII  <td>12,345.67</td> or "FII Buy" followed by a number
+        import re
+
+        # Try to find ₹ values in the page near FII/DII labels
+        sections = {"FII": result, "FPI": result, "DII": result}
+        for label, target in sections.items():
+            # Look after each occurrence of the label for nearby numbers
+            for m in re.finditer(re.escape(label), text, re.IGNORECASE):
+                window = text[m.start():m.start() + 500]
+                numbers = re.findall(r'([\d,]+\.\d{2})', window)
+                vals = [float(n.replace(",", "")) for n in numbers]
+                # Expecting buy, sell, net in order
+                if len(vals) >= 3:
+                    # Determine which section based on label
+                    if "FII" in label.upper() or "FPI" in label.upper():
+                        result["fii_buy"] = vals[0]
+                        result["fii_sell"] = vals[1]
+                        result["fii_net"] = vals[2]
+                    elif "DII" in label.upper():
+                        result["dii_buy"] = vals[0]
+                        result["dii_sell"] = vals[1]
+                        result["dii_net"] = vals[2]
+                    break
+
+        if result["fii_net"] == 0 and result["dii_net"] == 0:
+            return None
+
+        return result
+    except Exception as e:
+        print(f"[FII/DII] Moneycontrol fallback failed: {e}", flush=True)
         return None
 
 
