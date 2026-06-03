@@ -203,91 +203,55 @@ def fetch_from_nse() -> Optional[dict]:
 def fetch_from_moneycontrol() -> Optional[dict]:
     """Fallback: scrape FII/DII data from Moneycontrol.
 
-    Uses the FII/DII activity page which contains a structured table.
-    This endpoint is less likely to geo-block than NSE.
+    Moneycontrol SSR-renders the data as JSON inside a <script> tag.
+    Extracts it directly — no regex fragility.
     """
     try:
-        url = "https://www.moneycontrol.com/stocks/marketstats/fii_dii_activity/index.php"
-        resp = requests.get(url, headers={"User-Agent": NSE_HEADERS["User-Agent"]}, timeout=15)
+        url = "https://www.moneycontrol.com/markets/fii-dii-data/"
+        resp = requests.get(
+            url,
+            headers={"User-Agent": NSE_HEADERS["User-Agent"]},
+            timeout=15,
+        )
         if resp.status_code != 200:
             return None
 
         text = resp.text
 
-        # Look for the FII row in the data table — typical structure:
-        # <td>FII</td><td>Buy Value</td><td>12,345.67</td>...
-        # or the newer div-based layout with class="tblData" or "mkt_info"
+        # Find the Next.js page props JSON containing FiiDiiData
+        # Pattern: "FiiDiiData":{"sectorName":... "fiiDiiData":[{...}]}
         import re
+        import json
+
+        m = re.search(r'"FiiDiiData"\s*:\s*(\{.*?"fiiDiiData"\s*:\s*\[.*?\]\s*\})', text, re.DOTALL)
+        if not m:
+            return None
+
+        payload = json.loads(m.group(1))
+        records = payload.get("fiiDiiData", [])
+        if not records:
+            return None
+
+        # First record is the most recent day
+        today_data = records[0]
+        source_date = today_data.get("date")
+
+        def parse_mc_val(v: str) -> float:
+            if v is None:
+                return 0.0
+            cleaned = v.replace(",", "").replace("+", "").strip()
+            return float(cleaned) if cleaned else 0.0
 
         result: dict = {
-            "fii_buy": 0, "fii_sell": 0, "fii_net": 0,
-            "dii_buy": 0, "dii_sell": 0, "dii_net": 0,
+            "fii_buy": 0,
+            "fii_sell": 0,
+            "fii_net": parse_mc_val(today_data.get("fiiCM", "0")),
+            "dii_buy": 0,
+            "dii_sell": 0,
+            "dii_net": parse_mc_val(today_data.get("diiCM", "0")),
             "source": "moneycontrol",
-            "date": date.today().strftime("%Y-%m-%d"),
+            "date": source_date if source_date else date.today().strftime("%Y-%m-%d"),
         }
-
-        # Strategy: find the FII/DII table by looking for its container
-        # and then extracting numbers from that region only.
-        # Try to locate the section containing both FII and DII data.
-        markers = ["FII", "DII", "FPI", "Institutional", "RnDTable"]
-        table_start = len(text)
-        table_end = 0
-        for m in markers:
-            idx = text.find(m)
-            if idx != -1:
-                table_start = min(table_start, idx)
-                # Look up to 2000 chars after the first marker
-                table_end = max(table_end, idx + 2000)
-
-        if table_start >= table_end:
-            return None
-
-        table_html = text[table_start:table_end]
-
-        # Find all ₹ Crore values (numbers with 2 decimals, possibly negative)
-        values = re.findall(
-            r'(?:Rs\.?|₹)?\s*([+-]?\s*[\d,]+\.\d{2})',
-            table_html,
-        )
-        cleaned = [float(v.replace(",", "").replace(" ", "")) for v in values]
-
-        # Filter to reasonable ranges (FII/DII in ₹ Crores: typically 0-50k)
-        crores = [v for v in cleaned if 0 < v < 100000]
-
-        if len(crores) < 4:
-            # Try without the currency prefix — look for any decimal number
-            all_vals = re.findall(r'([+-]?\s*[\d,]+\.\d{2})', table_html)
-            cleaned_all = [float(v.replace(",", "").replace(" ", "")) for v in all_vals]
-            crores = [v for v in cleaned_all if 0 < v < 100000]
-
-        if len(crores) >= 6:
-            # Expecting: FII buy, FII sell, FII net, DII buy, DII sell, DII net
-            result["fii_buy"] = crores[0]
-            result["fii_sell"] = crores[1]
-            result["fii_net"] = crores[2]
-            result["dii_buy"] = crores[3]
-            result["dii_sell"] = crores[4]
-            result["dii_net"] = crores[5]
-        elif len(crores) >= 2:
-            # Fallback: just first set of values
-            result["fii_buy"] = crores[0]
-            result["fii_sell"] = crores[1] if len(crores) > 1 else 0
-            # If only 2 values, try to find remaining nearby
-            remaining = crores[2:]
-            if len(remaining) >= 4:
-                result["dii_buy"] = remaining[0]
-                result["dii_sell"] = remaining[1]
-                result["dii_net"] = remaining[3]
-            # Compute nets
-            if result["fii_net"] == 0:
-                result["fii_net"] = round(result["fii_buy"] - result["fii_sell"], 2)
-            if result["dii_net"] == 0 and result["dii_buy"] and result["dii_sell"]:
-                result["dii_net"] = round(result["dii_buy"] - result["dii_sell"], 2)
-        else:
-            return None
-
-        if result["fii_net"] == 0 and result["dii_net"] == 0:
-            return None
 
         return result
     except Exception as e:
