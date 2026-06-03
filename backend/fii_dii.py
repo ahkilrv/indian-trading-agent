@@ -78,9 +78,14 @@ def fetch_from_nse() -> Optional[dict]:
         )
         if resp.status_code == 200:
             data = resp.json()
-            # NSE may return a 1-element list wrapping the object
-            if isinstance(data, list) and len(data) == 1:
-                data = data[0]
+            # NSE may return a list — unwrap and handle
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and ("FII" in item or "DII" in item or "date" in item):
+                        data = item
+                        break
+                else:
+                    raise ValueError(f"Unexpected list response: {data}")
             if not isinstance(data, dict):
                 raise ValueError(f"Unexpected response type: {type(data).__name__}")
             result: dict = {
@@ -204,7 +209,7 @@ def fetch_from_moneycontrol() -> Optional[dict]:
     """Fallback: scrape FII/DII data from Moneycontrol.
 
     Moneycontrol SSR-renders the data as JSON inside a <script> tag.
-    Extracts it directly — no regex fragility.
+    Extracts via __NEXT_DATA__ or pageProps JSON.
     """
     try:
         url = "https://www.moneycontrol.com/markets/fii-dii-data/"
@@ -218,17 +223,30 @@ def fetch_from_moneycontrol() -> Optional[dict]:
 
         text = resp.text
 
-        # Find the Next.js page props JSON containing FiiDiiData
-        # Pattern: "FiiDiiData":{"sectorName":... "fiiDiiData":[{...}]}
+        # Strategy: find the script tag containing pageProps JSON
         import re
         import json
 
-        m = re.search(r'"FiiDiiData"\s*:\s*(\{.*?"fiiDiiData"\s*:\s*\[.*?\]\s*\})', text, re.DOTALL)
-        if not m:
-            return None
+        # Look for __NEXT_DATA__ or the props JSON itself
+        # Pattern: anything between "props":{ and the next }}}}} boundary
+        # Safer: find the script tag with id="__NEXT_DATA__"
+        m = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', text, re.DOTALL)
+        if m:
+            payload = json.loads(m.group(1))
+            page_props = payload.get("props", {}).get("pageProps", {})
+        else:
+            # Fallback: look for "props":{"pageProps":{"FiiDiiData"...
+            m = re.search(r'"props"\s*:\s*(\{.*"pageProps"\s*:\s*\{.*"FiiDiiData"\s*:\s*\{.*"fiiDiiData"\s*:\s*\[.*?\]\s*\}.*?\}\s*\})', text, re.DOTALL)
+            if not m:
+                return None
+            try:
+                payload = json.loads(m.group(1))
+            except json.JSONDecodeError:
+                payload = {}
+            page_props = payload.get("pageProps", payload)
 
-        payload = json.loads(m.group(1))
-        records = payload.get("fiiDiiData", [])
+        fiidii = page_props.get("FiiDiiData", page_props)
+        records = fiidii.get("fiiDiiData", [])
         if not records:
             return None
 
@@ -236,11 +254,10 @@ def fetch_from_moneycontrol() -> Optional[dict]:
         today_data = records[0]
         source_date = today_data.get("date")
 
-        def parse_mc_val(v: str) -> float:
+        def parse_mc_val(v) -> float:
             if v is None:
                 return 0.0
-            cleaned = v.replace(",", "").replace("+", "").strip()
-            return float(cleaned) if cleaned else 0.0
+            return float(str(v).replace(",", "").replace("+", "").strip())
 
         result: dict = {
             "fii_buy": 0,
