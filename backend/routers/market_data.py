@@ -422,7 +422,7 @@ def debug_data_sources(ticker: str):
     now = datetime.now()
     results = {}
 
-    # 1. Stock data (Dhan → nse_http → yfinance)
+    # 1. Stock data (Dhan → yfinance)
     try:
         csv_str = route_to_vendor("get_stock_data", symbol, (now - timedelta(days=30)).strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d"))
         import pandas as pd
@@ -437,7 +437,7 @@ def debug_data_sources(ticker: str):
     except Exception as e:
         results["get_stock_data"] = {"status": "FAIL", "error": str(e), "vendors": list(VENDOR_METHODS.get("get_stock_data", {}).keys())}
 
-    # 2. Fundamentals (Alpha Vantage → yfinance)
+    # 2. Fundamentals (Screener.in → yfinance)
     try:
         raw = route_to_vendor("get_fundamentals", symbol, now.strftime("%Y-%m-%d"))
         is_json = isinstance(raw, dict) or (isinstance(raw, str) and raw.strip().startswith("{"))

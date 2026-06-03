@@ -296,10 +296,10 @@ def get_today_data(force_refresh: bool = False) -> Optional[dict]:
                 if (datetime.now() - fetched).total_seconds() < 3600:
                     return d
 
-    # Fetch fresh
-    data = fetch_from_nse()
+    # Fetch fresh — Moneycontrol first (works on Render), NSE as fallback (blocked on Render, works from Indian IPs)
+    data = fetch_from_moneycontrol()
     if not data:
-        data = fetch_from_moneycontrol()
+        data = fetch_from_nse()
 
     if data:
         save_data(data)
