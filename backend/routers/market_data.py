@@ -340,7 +340,13 @@ def _parse_fundamentals(raw):
                 pass
         # Fallback: yfinance / screener text format
         if raw.startswith("# Company Fundamentals"):
-            d = {"data_source": "yfinance"}
+            # Detect source from comment lines
+            source = "yfinance"
+            for header_line in raw.split("\n")[:5]:
+                if "# Source: Screener.in" in header_line:
+                    source = "Screener.in"
+                    break
+            d = {"data_source": source}
             for line in raw.split("\n"):
                 line = line.strip()
                 if ": " in line and not line.startswith("#"):

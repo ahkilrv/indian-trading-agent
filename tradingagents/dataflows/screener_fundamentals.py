@@ -168,6 +168,7 @@ def _format_output(ticker: str, name: str | None, sector: str | None, industry: 
     now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         f"# Company Fundamentals for {ticker}",
+        f"# Source: Screener.in",
         f"# Data retrieved on: {now_str}",
         "",
     ]
