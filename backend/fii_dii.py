@@ -13,7 +13,7 @@ Caches results in DB to avoid hammering external sources.
 
 import requests
 import time
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional
 from backend.db import get_db
 
@@ -78,6 +78,11 @@ def fetch_from_nse() -> Optional[dict]:
         )
         if resp.status_code == 200:
             data = resp.json()
+            # NSE may return a 1-element list wrapping the object
+            if isinstance(data, list) and len(data) == 1:
+                data = data[0]
+            if not isinstance(data, dict):
+                raise ValueError(f"Unexpected response type: {type(data).__name__}")
             result: dict = {
                 "fii_buy": 0, "fii_sell": 0, "fii_net": 0,
                 "dii_buy": 0, "dii_sell": 0, "dii_net": 0,
@@ -304,6 +309,9 @@ def get_today_data(force_refresh: bool = False) -> Optional[dict]:
                 d = row
                 # If fetched within last hour, use cache
                 fetched = datetime.fromisoformat(d["fetched_at"])
+                # Strip timezone info if present (SQLite stores naive, PostgreSQL stores aware)
+                if fetched.tzinfo is not None:
+                    fetched = fetched.replace(tzinfo=None)
                 if (datetime.now() - fetched).total_seconds() < 3600:
                     return d
 
