@@ -55,7 +55,7 @@ def ensure_db():
                 ticker TEXT NOT NULL,
                 initial_capital REAL DEFAULT 100000,
                 position_size_pct REAL DEFAULT 10,
-                enable_learning BOOLEAN DEFAULT 0,
+                enable_learning BOOLEAN DEFAULT FALSE,
                 total_trades INTEGER DEFAULT 0,
                 winning_trades INTEGER DEFAULT 0,
                 losing_trades INTEGER DEFAULT 0,
