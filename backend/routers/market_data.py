@@ -255,35 +255,13 @@ def get_fundamentals(ticker: str):
         from tradingagents.dataflows.interface import route_to_vendor
         from datetime import datetime
         raw = route_to_vendor("get_fundamentals", symbol, datetime.now().strftime("%Y-%m-%d"))
-        import json
-        # Alpha Vantage returns JSON string, yfinance returns text
-        if isinstance(raw, str):
-            data = json.loads(raw)
-        elif isinstance(raw, dict):
-            data = raw
-        else:
-            data = {}
 
-        if data and data.get("Name"):
+        data = _parse_fundamentals(raw)
+        if data and data.get("name"):
             return {
                 "ticker": symbol,
-                "name": data.get("Name", symbol),
-                "sector": data.get("Sector"),
-                "industry": data.get("Industry"),
-                "market_cap": _safe_float(data.get("MarketCapitalization")),
-                "pe_ratio": _safe_float(data.get("PERatio")),
-                "forward_pe": _safe_float(data.get("ForwardPE")),
-                "pb_ratio": _safe_float(data.get("PriceToBookRatio")),
-                "dividend_yield": _safe_float(data.get("DividendYield")),
-                "eps": _safe_float(data.get("EPS")),
-                "roe": _safe_float(data.get("ReturnOnEquityTTM")),
-                "debt_to_equity": _safe_float(data.get("DebtToEquityRatio")),
-                "revenue": _safe_float(data.get("RevenueTTM")),
-                "profit_margin": _safe_float(data.get("ProfitMargin")),
-                "fifty_two_week_high": _safe_float(data.get("52WeekHigh")),
-                "fifty_two_week_low": _safe_float(data.get("52WeekLow")),
-                "beta": _safe_float(data.get("Beta")),
-                "data_source": "Alpha Vantage",
+                **{k: v for k, v in data.items() if v is not None},
+                "data_source": data.get("data_source", "yfinance"),
             }
     except Exception:
         pass
@@ -293,6 +271,76 @@ def get_fundamentals(ticker: str):
         "error": "Fundamentals unavailable from all sources",
         "data_source": "Alpha Vantage",
     }
+
+
+_YF_FIELD_MAP = {
+    "Name": "name", "Sector": "sector", "Industry": "industry",
+    "Market Cap": "market_cap", "PE Ratio (TTM)": "pe_ratio",
+    "Forward PE": "forward_pe", "PEG Ratio": "peg_ratio",
+    "Price to Book": "pb_ratio", "EPS (TTM)": "eps",
+    "Forward EPS": "forward_eps", "Dividend Yield": "dividend_yield",
+    "Beta": "beta", "52 Week High": "fifty_two_week_high",
+    "52 Week Low": "fifty_two_week_low",
+    "50 Day Average": "fifty_day_avg", "200 Day Average": "two_hundred_day_avg",
+    "Revenue (TTM)": "revenue", "Gross Profit": "gross_profit",
+    "EBITDA": "ebitda", "Net Income": "net_income",
+    "Profit Margin": "profit_margin", "Operating Margin": "operating_margin",
+    "Return on Equity": "roe", "Return on Assets": "roa",
+    "Debt to Equity": "debt_to_equity", "Current Ratio": "current_ratio",
+    "Book Value": "book_value", "Free Cash Flow": "free_cash_flow",
+}
+
+_AV_FIELD_MAP = {
+    "Name": "name", "Sector": "sector", "Industry": "industry",
+    "PERatio": "pe_ratio", "ForwardPE": "forward_pe",
+    "PEGRatio": "peg_ratio", "PriceToBookRatio": "pb_ratio",
+    "EPS": "eps", "DividendYield": "dividend_yield",
+    "Beta": "beta", "52WeekHigh": "fifty_two_week_high",
+    "52WeekLow": "fifty_two_week_low",
+    "RevenueTTM": "revenue", "ProfitMargin": "profit_margin",
+    "ReturnOnEquityTTM": "roe", "DebtToEquityRatio": "debt_to_equity",
+    "MarketCapitalization": "market_cap",
+    "OperatingMarginTTM": "operating_margin",
+    "BookValue": "book_value",
+}
+
+
+def _parse_fundamentals(raw):
+    """Parse fundamentals from Alpha Vantage JSON or yfinance text format."""
+    import json
+    if isinstance(raw, dict):
+        return _remap_fields(raw, _AV_FIELD_MAP, "Alpha Vantage")
+    if isinstance(raw, str):
+        # Try AV JSON
+        if raw.strip().startswith("{"):
+            try:
+                data = json.loads(raw)
+                if data and data.get("Name"):
+                    return _remap_fields(data, _AV_FIELD_MAP, "Alpha Vantage")
+            except json.JSONDecodeError:
+                pass
+        # Fallback: yfinance text format
+        if raw.startswith("# Company Fundamentals"):
+            d = {"data_source": "yfinance"}
+            for line in raw.split("\n"):
+                line = line.strip()
+                if ": " in line and not line.startswith("#"):
+                    key, val = line.split(": ", 1)
+                    mapped = _YF_FIELD_MAP.get(key)
+                    if mapped:
+                        d[mapped] = _safe_float(val)
+            if d.get("name"):
+                return d
+    return {}
+
+
+def _remap_fields(data, field_map, source):
+    result = {"data_source": source}
+    for av_key, out_key in field_map.items():
+        val = data.get(av_key)
+        if val is not None:
+            result[out_key] = _safe_float(val) if out_key not in ("name", "sector", "industry") else val
+    return result
 
 
 def _safe_float(val):
