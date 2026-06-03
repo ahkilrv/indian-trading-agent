@@ -1,6 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from .alpha_vantage_common import _make_api_request, _filter_csv_by_date_range
+from .alpha_vantage_fundamentals import _av_ticker
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -31,7 +32,7 @@ def get_stock(
     outputsize = "compact" if days_from_today_to_start < 100 else "full"
 
     params = {
-        "symbol": symbol,
+        "symbol": _av_ticker(symbol),
         "outputsize": outputsize,
         "datatype": "csv",
     }

@@ -1,6 +1,13 @@
 from .alpha_vantage_common import _make_api_request
 
 
+def _av_ticker(ticker: str) -> str:
+    """Convert yfinance ticker (.NS/.BO) to Alpha Vantage format (.BSE)."""
+    bare = ticker.upper().replace(".NS", "").replace(".BO", "")
+    return bare  # AV free tier works with bare ticker on OVERVIEW for NSE stocks via BSE listing
+    # If needed for specific stocks, append ".BSE": return f"{bare}.BSE"
+
+
 def _filter_reports_by_date(result, curr_date: str):
     """Filter annualReports/quarterlyReports to exclude entries after curr_date.
 
@@ -30,7 +37,7 @@ def get_fundamentals(ticker: str, curr_date: str = None) -> str:
         str: Company overview data including financial ratios and key metrics
     """
     params = {
-        "symbol": ticker,
+        "symbol": _av_ticker(ticker),
     }
 
     return _make_api_request("OVERVIEW", params)
@@ -38,18 +45,18 @@ def get_fundamentals(ticker: str, curr_date: str = None) -> str:
 
 def get_balance_sheet(ticker: str, freq: str = "quarterly", curr_date: str = None):
     """Retrieve balance sheet data for a given ticker symbol using Alpha Vantage."""
-    result = _make_api_request("BALANCE_SHEET", {"symbol": ticker})
+    result = _make_api_request("BALANCE_SHEET", {"symbol": _av_ticker(ticker)})
     return _filter_reports_by_date(result, curr_date)
 
 
 def get_cashflow(ticker: str, freq: str = "quarterly", curr_date: str = None):
     """Retrieve cash flow statement data for a given ticker symbol using Alpha Vantage."""
-    result = _make_api_request("CASH_FLOW", {"symbol": ticker})
+    result = _make_api_request("CASH_FLOW", {"symbol": _av_ticker(ticker)})
     return _filter_reports_by_date(result, curr_date)
 
 
 def get_income_statement(ticker: str, freq: str = "quarterly", curr_date: str = None):
     """Retrieve income statement data for a given ticker symbol using Alpha Vantage."""
-    result = _make_api_request("INCOME_STATEMENT", {"symbol": ticker})
+    result = _make_api_request("INCOME_STATEMENT", {"symbol": _av_ticker(ticker)})
     return _filter_reports_by_date(result, curr_date)
 

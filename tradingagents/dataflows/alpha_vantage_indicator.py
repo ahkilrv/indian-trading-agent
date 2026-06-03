@@ -1,4 +1,5 @@
 from .alpha_vantage_common import _make_api_request
+from .alpha_vantage_fundamentals import _av_ticker
 
 def get_indicator(
     symbol: str,
@@ -76,7 +77,7 @@ def get_indicator(
         # Get indicator data for the period
         if indicator == "close_50_sma":
             data = _make_api_request("SMA", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "time_period": "50",
                 "series_type": series_type,
@@ -84,7 +85,7 @@ def get_indicator(
             })
         elif indicator == "close_200_sma":
             data = _make_api_request("SMA", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "time_period": "200",
                 "series_type": series_type,
@@ -92,7 +93,7 @@ def get_indicator(
             })
         elif indicator == "close_10_ema":
             data = _make_api_request("EMA", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "time_period": "10",
                 "series_type": series_type,
@@ -100,28 +101,28 @@ def get_indicator(
             })
         elif indicator == "macd":
             data = _make_api_request("MACD", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "series_type": series_type,
                 "datatype": "csv"
             })
         elif indicator == "macds":
             data = _make_api_request("MACD", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "series_type": series_type,
                 "datatype": "csv"
             })
         elif indicator == "macdh":
             data = _make_api_request("MACD", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "series_type": series_type,
                 "datatype": "csv"
             })
         elif indicator == "rsi":
             data = _make_api_request("RSI", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "time_period": str(time_period),
                 "series_type": series_type,
@@ -129,7 +130,7 @@ def get_indicator(
             })
         elif indicator in ["boll", "boll_ub", "boll_lb"]:
             data = _make_api_request("BBANDS", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "time_period": "20",
                 "series_type": series_type,
@@ -137,7 +138,7 @@ def get_indicator(
             })
         elif indicator == "atr":
             data = _make_api_request("ATR", {
-                "symbol": symbol,
+                "symbol": _av_ticker(symbol),
                 "interval": interval,
                 "time_period": str(time_period),
                 "datatype": "csv"
