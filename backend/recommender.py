@@ -331,6 +331,7 @@ def _analyze_stock(ticker: str, data_window_days: int = 60) -> dict | None:
             "near_resistance": round(recent_high, 2) if recent_high is not None else None,
         }
     except Exception as e:
+        print(f"[Recommender] _analyze_stock({ticker}) failed: {e}", flush=True)
         return None
 
 
@@ -637,51 +638,75 @@ async def recommend_stream(
     yield f"event: metadata\ndata: {json.dumps({'bias': market_bias, 'events': today_market_events})}\n\n"
 
     # 2. Analyze stocks with concurrency cap
-    sem = asyncio.Semaphore(2)
+    sem = asyncio.Semaphore(1)
     all_results: list[dict] = []
 
     async def _analyze_one(t: str) -> dict | None:
         async with sem:
-            return await asyncio.to_thread(_analyze_stock, t)
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(_analyze_stock, t),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                print(f"[Recommender] Timeout analyzing {t}", flush=True)
+                return None
 
     tasks = [_analyze_one(t) for t in stocks]
     done = 0
     total = len(tasks)
 
-    for coro in asyncio.as_completed(tasks):
-        result = await coro
-        done += 1
-        if result is not None:
-            if market_bias:
-                result = _apply_market_bias(result, market_bias)
-            if apply_event_filter:
-                try:
-                    from backend.calendar_data import get_event_filter_for_ticker
-                    evt = await asyncio.to_thread(
-                        get_event_filter_for_ticker, result["ticker"], days_ahead=2
-                    )
-                    if evt.get("has_event"):
-                        result = _apply_event_filter(result, evt)
-                except Exception:
-                    pass
-            if apply_concentration_check and result.get("direction") in ("STRONG BUY", "BUY"):
-                try:
-                    from backend.concentration import check_new_trade_concentration
-                    conc = await asyncio.to_thread(
-                        check_new_trade_concentration,
-                        result["ticker"],
-                        proposed_position_value=total_capital * 0.1,
-                        total_capital=total_capital,
-                    )
-                    result = _apply_concentration_filter(result, conc)
-                except Exception:
-                    pass
+    try:
+        for coro in asyncio.as_completed(tasks):
+            try:
+                result = await coro
+            except Exception as exc:
+                print(f"[Recommender] Stock analysis error: {exc}", flush=True)
+                done += 1
+                continue
+            done += 1
+            if result is not None:
+                if market_bias:
+                    result = _apply_market_bias(result, market_bias)
+                if apply_event_filter:
+                    try:
+                        from backend.calendar_data import get_event_filter_for_ticker
+                        evt = await asyncio.to_thread(
+                            get_event_filter_for_ticker, result["ticker"], days_ahead=2
+                        )
+                        if evt.get("has_event"):
+                            result = _apply_event_filter(result, evt)
+                    except Exception:
+                        pass
+                if apply_concentration_check and result.get("direction") in ("STRONG BUY", "BUY"):
+                    try:
+                        from backend.concentration import check_new_trade_concentration
+                        conc = await asyncio.to_thread(
+                            check_new_trade_concentration,
+                            result["ticker"],
+                            proposed_position_value=total_capital * 0.1,
+                            total_capital=total_capital,
+                        )
+                        result = _apply_concentration_filter(result, conc)
+                    except Exception:
+                        pass
 
-            all_results.append(result)
-            yield f"event: result\ndata: {json.dumps(result, default=str)}\n\n"
+                all_results.append(result)
+                try:
+                    yield f"event: result\ndata: {json.dumps(result, default=str)}\n\n"
+                except Exception as yield_err:
+                    print(f"[Recommender] Yield error (client disconnected?): {yield_err}", flush=True)
+                    break
 
-        if done % 5 == 0 or done == total:
-            yield f"event: progress\ndata: {json.dumps({'done': done, 'total': total})}\n\n"
+            if done % 5 == 0 or done == total:
+                try:
+                    yield f"event: progress\ndata: {json.dumps({'done': done, 'total': total})}\n\n"
+                except Exception:
+                    break
+    except Exception as loop_exc:
+        print(f"[Recommender] Fatal error in stream loop: {loop_exc}", flush=True)
+        import traceback
+        traceback.print_exc()
 
     # 3. Build final sorted response
     all_results.sort(key=lambda x: -x["score"])
