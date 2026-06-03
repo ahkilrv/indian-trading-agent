@@ -136,9 +136,9 @@ def close_paper_trade(trade_id: int) -> dict:
         conn.execute(
             """UPDATE paper_trades SET
                 status = 'manually_closed',
-                notes = COALESCE(notes, '') || '\nClosed at Rs.' || ? || ' on ' || date('now') || '. P&L: ' || ? || '%',
-                updated_at = datetime('now')
-               WHERE id = ?""",
+                notes = COALESCE(notes, '') || '\nClosed at Rs.' || %s || ' on ' || CURRENT_DATE || '. P&L: ' || %s || '%',
+                updated_at = CURRENT_TIMESTAMP
+               WHERE id = %s""",
             (current_price, pnl_pct, trade_id),
         )
 

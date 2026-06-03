@@ -148,7 +148,7 @@ def _ensure_table():
                 event_date TEXT NOT NULL,
                 event_type TEXT DEFAULT 'earnings',
                 description TEXT,
-                fetched_at TEXT DEFAULT (datetime('now')),
+                fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (ticker, event_date, event_type)
             )
         """)
@@ -207,9 +207,11 @@ def refresh_earnings_calendar(tickers: list[str]) -> dict:
         for e in fetched:
             try:
                 conn.execute(
-                    """INSERT OR REPLACE INTO earnings_calendar
+                    """INSERT INTO earnings_calendar
                     (ticker, event_date, event_type, description, fetched_at)
-                    VALUES (?, ?, ?, ?, datetime('now'))""",
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (ticker, event_date, event_type)
+                    DO UPDATE SET description = EXCLUDED.description, fetched_at = CURRENT_TIMESTAMP""",
                     (e["ticker"], e["event_date"], e["event_type"], e["description"]),
                 )
             except Exception:
@@ -224,10 +226,10 @@ def get_earnings_in_range(start_date: date, end_date: date,
     _ensure_table()
     with get_db() as conn:
         if tickers:
-            placeholders = ",".join("?" * len(tickers))
+            placeholders = ",".join("%s" * len(tickers))
             rows = conn.execute(
                 f"""SELECT * FROM earnings_calendar
-                    WHERE event_date >= ? AND event_date <= ?
+                    WHERE event_date >= %s AND event_date <= %s
                     AND ticker IN ({placeholders})
                     ORDER BY event_date""",
                 (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), *[t.upper() for t in tickers]),
@@ -235,11 +237,11 @@ def get_earnings_in_range(start_date: date, end_date: date,
         else:
             rows = conn.execute(
                 """SELECT * FROM earnings_calendar
-                   WHERE event_date >= ? AND event_date <= ?
+                   WHERE event_date >= %s AND event_date <= %s
                    ORDER BY event_date""",
                 (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")),
             ).fetchall()
-        return [dict(r) for r in rows]
+        return rows
 
 
 def get_next_earnings_date(ticker: str) -> Optional[str]:
@@ -249,7 +251,7 @@ def get_next_earnings_date(ticker: str) -> Optional[str]:
     with get_db() as conn:
         row = conn.execute(
             """SELECT event_date FROM earnings_calendar
-               WHERE ticker = ? AND event_date >= ? AND event_type = 'earnings'
+               WHERE ticker = %s AND event_date >= %s AND event_type = 'earnings'
                ORDER BY event_date LIMIT 1""",
             (ticker.upper(), today),
         ).fetchone()
@@ -261,9 +263,11 @@ def get_next_earnings_date(ticker: str) -> Optional[str]:
     if result and result["event_date"] >= today:
         with get_db() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO earnings_calendar
+                """INSERT INTO earnings_calendar
                 (ticker, event_date, event_type, description, fetched_at)
-                VALUES (?, ?, ?, ?, datetime('now'))""",
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (ticker, event_date, event_type)
+                DO UPDATE SET description = EXCLUDED.description, fetched_at = CURRENT_TIMESTAMP""",
                 (result["ticker"], result["event_date"], result["event_type"], result["description"]),
             )
         return result["event_date"]

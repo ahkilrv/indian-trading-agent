@@ -1,28 +1,27 @@
-"""SQLite database for watchlist, analysis history, backtests, and settings."""
+"""SQLite/PostgreSQL database for watchlist, analysis, backtests, and settings.
 
-import sqlite3
-import os
+All SQL targets PostgreSQL syntax. Auto-translates to SQLite for local dev.
+"""
+
 import json
+import os
 from datetime import datetime
 from contextlib import contextmanager
 
-DB_PATH = os.environ.get(
-    "DATABASE_URL",
-    os.path.join(os.path.expanduser("~"), ".tradingagents", "trading_agent.db"),
-)
+from backend.db_adapter import get_db
 
 
 def ensure_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with get_db() as conn:
-        conn.executescript("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS watchlist (
                 ticker TEXT PRIMARY KEY,
                 exchange TEXT DEFAULT 'NSE',
                 name TEXT,
-                added_at TEXT DEFAULT (datetime('now'))
-            );
-
+                added_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS analysis_history (
                 task_id TEXT PRIMARY KEY,
                 ticker TEXT NOT NULL,
@@ -47,9 +46,10 @@ def ensure_db():
                 pnl_amount REAL,
                 pnl_pct REAL,
                 pnl_status TEXT DEFAULT 'pending',
-                created_at TEXT DEFAULT (datetime('now'))
-            );
-
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS backtest_runs (
                 backtest_id TEXT PRIMARY KEY,
                 ticker TEXT NOT NULL,
@@ -63,11 +63,12 @@ def ensure_db():
                 max_drawdown_pct REAL DEFAULT 0,
                 final_portfolio_value REAL,
                 status TEXT DEFAULT 'running',
-                created_at TEXT DEFAULT (datetime('now'))
-            );
-
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS backtest_trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 backtest_id TEXT NOT NULL,
                 trade_date TEXT NOT NULL,
                 ticker TEXT NOT NULL,
@@ -80,29 +81,30 @@ def ensure_db():
                 portfolio_value REAL,
                 duration_seconds REAL,
                 FOREIGN KEY (backtest_id) REFERENCES backtest_runs(backtest_id)
-            );
-
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
-            );
-
-            -- Paper trading: virtual trades opened from recommendations
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS paper_trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 ticker TEXT NOT NULL,
-                source TEXT,                        -- "recommendation" | "manual" | "scanner" | "ai_analysis"
-                strategy TEXT,                      -- Human-readable: "Recommendation Engine", "Gap Scanner", "AI Pipeline", etc.
-                direction TEXT,                     -- "LONG" | "SHORT"
-                signal TEXT,                        -- BUY, STRONG BUY, etc.
-                score REAL,                         -- from recommendation engine
-                confidence TEXT,                    -- HIGH | MEDIUM | LOW
+                source TEXT,
+                strategy TEXT,
+                direction TEXT,
+                signal TEXT,
+                score REAL,
+                confidence TEXT,
                 success_probability INTEGER,
-                triggered_signals TEXT,             -- JSON: list of specific signal names that fired
+                triggered_signals TEXT,
                 entry_price REAL NOT NULL,
-                entry_date TEXT DEFAULT (date('now')),
-                entry_datetime TEXT DEFAULT (datetime('now')),
-                price_1d REAL,                      -- price 1 trading day later
+                entry_date TEXT DEFAULT CURRENT_DATE,
+                entry_datetime TEXT DEFAULT CURRENT_TIMESTAMP,
+                price_1d REAL,
                 price_3d REAL,
                 price_5d REAL,
                 price_10d REAL,
@@ -110,50 +112,47 @@ def ensure_db():
                 pnl_3d_pct REAL,
                 pnl_5d_pct REAL,
                 pnl_10d_pct REAL,
-                status TEXT DEFAULT 'active',       -- active | expired | manually_closed
+                status TEXT DEFAULT 'active',
                 notes TEXT,
-                updated_at TEXT DEFAULT (datetime('now'))
-            );
-
-            -- Daily Verdict snapshots — measures whether the verdict actually predicted Nifty's move
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS verdict_history (
-                snapshot_date TEXT PRIMARY KEY,         -- YYYY-MM-DD (one row per day)
-                verdict TEXT NOT NULL,                  -- GREEN | YELLOW | RED
+                snapshot_date TEXT PRIMARY KEY,
+                verdict TEXT NOT NULL,
                 label TEXT,
                 action TEXT,
                 caution_count INTEGER,
                 favorable_count INTEGER,
-                caution_flags TEXT,                     -- JSON list
-                favorable_flags TEXT,                   -- JSON list
+                caution_flags TEXT,
+                favorable_flags TEXT,
                 position_size_pct REAL,
                 max_trades_today INTEGER,
                 min_conviction TEXT,
-                nifty_close REAL,                       -- Nifty close on snapshot_date
-                nifty_close_1d REAL,                    -- Nifty close 1 trading day later
+                nifty_close REAL,
+                nifty_close_1d REAL,
                 nifty_close_3d REAL,
                 nifty_close_5d REAL,
                 nifty_return_1d_pct REAL,
                 nifty_return_3d_pct REAL,
                 nifty_return_5d_pct REAL,
-                outcome_1d TEXT,                        -- predicted_correctly | predicted_wrong | neutral
+                outcome_1d TEXT,
                 outcome_3d TEXT,
                 outcome_5d TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            );
-
-            -- Shadow trades: every STRONG BUY (and HIGH-conviction BUY) the recommender produces is
-            -- auto-tracked here, regardless of whether the user clicked Track. Lets us measure the
-            -- recommender's true win rate independent of user filtering, and detect false negatives
-            -- (good picks the user skipped).
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS shadow_trades (
                 ticker TEXT NOT NULL,
-                signal_date TEXT NOT NULL,              -- YYYY-MM-DD: when the rec was generated
-                signal TEXT,                            -- STRONG BUY | BUY
+                signal_date TEXT NOT NULL,
+                signal TEXT,
                 score REAL,
-                confidence TEXT,                        -- HIGH | MEDIUM | LOW
+                confidence TEXT,
                 success_probability INTEGER,
-                triggered_signals TEXT,                 -- JSON list (same shape as paper_trades)
+                triggered_signals TEXT,
                 regime_at_entry TEXT,
                 entry_price REAL NOT NULL,
                 price_1d REAL,
@@ -164,15 +163,15 @@ def ensure_db():
                 pnl_3d_pct REAL,
                 pnl_5d_pct REAL,
                 pnl_10d_pct REAL,
-                user_tracked INTEGER DEFAULT 0,         -- 1 if user also opened a paper_trade for this ticker on this day
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now')),
-                PRIMARY KEY (ticker, signal_date)       -- idempotent: one shadow per ticker per day
-            );
-
-            -- Historical backtest of the recommendation engine
+                user_tracked INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (ticker, signal_date)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS recommender_backtests (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 run_id TEXT NOT NULL,
                 trade_date TEXT NOT NULL,
                 ticker TEXT NOT NULL,
@@ -185,22 +184,32 @@ def ensure_db():
                 return_3d REAL,
                 return_5d REAL,
                 return_10d REAL,
-                outcome_1d TEXT,                    -- win | loss | breakeven
+                outcome_1d TEXT,
                 outcome_5d TEXT,
-                created_at TEXT DEFAULT (datetime('now'))
-            );
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
         """)
 
 
-@contextmanager
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+def _migrate_analysis_history_columns(conn):
+    for col in (
+        ("market_analysis", "TEXT"),
+        ("fundamentals_analysis", "TEXT"),
+        ("news_analysis", "TEXT"),
+        ("social_sentiment", "TEXT"),
+        ("bull_researcher_payload", "TEXT"),
+        ("bear_researcher_payload", "TEXT"),
+        ("research_manager_verdict", "TEXT"),
+        ("trader_execution_plan", "TEXT"),
+        ("aggressive_debater_payload", "TEXT"),
+        ("conservative_debater_payload", "TEXT"),
+        ("neutral_debater_payload", "TEXT"),
+        ("portfolio_manager_payload", "TEXT"),
+    ):
+        try:
+            conn.execute(f"ALTER TABLE analysis_history ADD COLUMN {col[0]} {col[1]}")
+        except Exception:
+            pass
 
 
 # --- Watchlist ---
@@ -208,48 +217,30 @@ def get_db():
 def get_watchlist() -> list[dict]:
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM watchlist ORDER BY added_at DESC").fetchall()
-        return [dict(r) for r in rows]
+        return rows
 
 
 def add_to_watchlist(ticker: str, exchange: str = "NSE", name: str = None):
     with get_db() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO watchlist (ticker, exchange, name) VALUES (?, ?, ?)",
+            "INSERT INTO watchlist (ticker, exchange, name) VALUES (%s, %s, %s) "
+            "ON CONFLICT (ticker) DO UPDATE SET exchange = EXCLUDED.exchange, name = EXCLUDED.name",
             (ticker.upper(), exchange, name),
         )
 
 
 def remove_from_watchlist(ticker: str):
     with get_db() as conn:
-        conn.execute("DELETE FROM watchlist WHERE ticker = ?", (ticker.upper(),))
+        conn.execute("DELETE FROM watchlist WHERE ticker = %s", (ticker.upper(),))
 
 
 # --- Analysis History ---
 
 def save_analysis(task_id: str, data: dict):
     with get_db() as conn:
-        # Ensure new structured columns exist (idempotent ALTER TABLE)
-        for col in (
-            ("market_analysis", "TEXT"),
-            ("fundamentals_analysis", "TEXT"),
-            ("news_analysis", "TEXT"),
-            ("social_sentiment", "TEXT"),
-            ("bull_researcher_payload", "TEXT"),
-            ("bear_researcher_payload", "TEXT"),
-            ("research_manager_verdict", "TEXT"),
-            ("trader_execution_plan", "TEXT"),
-            ("aggressive_debater_payload", "TEXT"),
-            ("conservative_debater_payload", "TEXT"),
-            ("neutral_debater_payload", "TEXT"),
-            ("portfolio_manager_payload", "TEXT"),
-        ):
-            try:
-                conn.execute(f"ALTER TABLE analysis_history ADD COLUMN {col[0]} {col[1]}")
-            except Exception:
-                pass  # column already exists
-
+        _migrate_analysis_history_columns(conn)
         conn.execute(
-            """INSERT OR REPLACE INTO analysis_history
+            """INSERT INTO analysis_history
             (task_id, ticker, trade_date, signal, market_report, sentiment_report,
              news_report, fundamentals_report, investment_plan, trader_investment_plan,
              final_trade_decision, bull_history, bear_history,
@@ -260,8 +251,37 @@ def save_analysis(task_id: str, data: dict):
              research_manager_verdict, trader_execution_plan,
              aggressive_debater_payload, conservative_debater_payload,
              neutral_debater_payload, portfolio_manager_payload)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (task_id) DO UPDATE SET
+            ticker = EXCLUDED.ticker, trade_date = EXCLUDED.trade_date,
+            signal = EXCLUDED.signal, market_report = EXCLUDED.market_report,
+            sentiment_report = EXCLUDED.sentiment_report,
+            news_report = EXCLUDED.news_report,
+            fundamentals_report = EXCLUDED.fundamentals_report,
+            investment_plan = EXCLUDED.investment_plan,
+            trader_investment_plan = EXCLUDED.trader_investment_plan,
+            final_trade_decision = EXCLUDED.final_trade_decision,
+            bull_history = EXCLUDED.bull_history,
+            bear_history = EXCLUDED.bear_history,
+            risk_aggressive_history = EXCLUDED.risk_aggressive_history,
+            risk_conservative_history = EXCLUDED.risk_conservative_history,
+            risk_neutral_history = EXCLUDED.risk_neutral_history,
+            stats = EXCLUDED.stats,
+            duration_seconds = EXCLUDED.duration_seconds,
+            market_analysis = EXCLUDED.market_analysis,
+            fundamentals_analysis = EXCLUDED.fundamentals_analysis,
+            news_analysis = EXCLUDED.news_analysis,
+            social_sentiment = EXCLUDED.social_sentiment,
+            bull_researcher_payload = EXCLUDED.bull_researcher_payload,
+            bear_researcher_payload = EXCLUDED.bear_researcher_payload,
+            research_manager_verdict = EXCLUDED.research_manager_verdict,
+            trader_execution_plan = EXCLUDED.trader_execution_plan,
+            aggressive_debater_payload = EXCLUDED.aggressive_debater_payload,
+            conservative_debater_payload = EXCLUDED.conservative_debater_payload,
+            neutral_debater_payload = EXCLUDED.neutral_debater_payload,
+            portfolio_manager_payload = EXCLUDED.portfolio_manager_payload""",
             (
                 task_id,
                 data.get("ticker"),
@@ -300,17 +320,15 @@ def save_analysis(task_id: str, data: dict):
 def update_analysis_pnl(task_id: str, entry_price: float, exit_price: float, pnl_amount: float, pnl_pct: float, pnl_status: str):
     with get_db() as conn:
         conn.execute(
-            "UPDATE analysis_history SET entry_price=?, exit_price=?, pnl_amount=?, pnl_pct=?, pnl_status=? WHERE task_id=?",
+            "UPDATE analysis_history SET entry_price=%s, exit_price=%s, pnl_amount=%s, pnl_pct=%s, pnl_status=%s WHERE task_id=%s",
             (entry_price, exit_price, pnl_amount, pnl_pct, pnl_status, task_id),
         )
 
 
 def get_analysis(task_id: str) -> dict | None:
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM analysis_history WHERE task_id = ?", (task_id,)).fetchone()
+        row = conn.execute("SELECT * FROM analysis_history WHERE task_id = %s", (task_id,)).fetchone()
         if row:
-            d = dict(row)
-            # Deserialize JSON columns
             for col in (
                 "stats", "market_analysis", "fundamentals_analysis",
                 "news_analysis", "social_sentiment",
@@ -319,24 +337,23 @@ def get_analysis(task_id: str) -> dict | None:
                 "aggressive_debater_payload", "conservative_debater_payload",
                 "neutral_debater_payload", "portfolio_manager_payload",
             ):
-                if d.get(col):
+                if row.get(col):
                     try:
-                        d[col] = json.loads(d[col])
+                        row[col] = json.loads(row[col])
                     except (json.JSONDecodeError, TypeError):
                         pass
-            return d
+            return row
         return None
 
 
 def get_analysis_history(limit: int = 50, offset: int = 0) -> list[dict]:
     with get_db() as conn:
-        rows = conn.execute(
+        return conn.execute(
             """SELECT task_id, ticker, trade_date, signal, duration_seconds,
                       entry_price, exit_price, pnl_pct, pnl_status, created_at
-               FROM analysis_history ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+               FROM analysis_history ORDER BY created_at DESC LIMIT %s OFFSET %s""",
             (limit, offset),
         ).fetchall()
-        return [dict(r) for r in rows]
 
 
 # --- Backtest ---
@@ -344,11 +361,22 @@ def get_analysis_history(limit: int = 50, offset: int = 0) -> list[dict]:
 def save_backtest_run(backtest_id: str, data: dict):
     with get_db() as conn:
         conn.execute(
-            """INSERT OR REPLACE INTO backtest_runs
+            """INSERT INTO backtest_runs
             (backtest_id, ticker, initial_capital, position_size_pct, enable_learning,
              total_trades, winning_trades, losing_trades, total_return_pct,
              max_drawdown_pct, final_portfolio_value, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (backtest_id) DO UPDATE SET
+            ticker = EXCLUDED.ticker, initial_capital = EXCLUDED.initial_capital,
+            position_size_pct = EXCLUDED.position_size_pct,
+            enable_learning = EXCLUDED.enable_learning,
+            total_trades = EXCLUDED.total_trades,
+            winning_trades = EXCLUDED.winning_trades,
+            losing_trades = EXCLUDED.losing_trades,
+            total_return_pct = EXCLUDED.total_return_pct,
+            max_drawdown_pct = EXCLUDED.max_drawdown_pct,
+            final_portfolio_value = EXCLUDED.final_portfolio_value,
+            status = EXCLUDED.status""",
             (
                 backtest_id,
                 data.get("ticker"),
@@ -372,7 +400,7 @@ def save_backtest_trade(backtest_id: str, trade: dict):
             """INSERT INTO backtest_trades
             (backtest_id, trade_date, ticker, signal, entry_price, exit_price,
              pnl_amount, pnl_pct, cumulative_pnl, portfolio_value, duration_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 backtest_id,
                 trade.get("trade_date"),
@@ -391,42 +419,40 @@ def save_backtest_trade(backtest_id: str, trade: dict):
 
 def get_backtest_run(backtest_id: str) -> dict | None:
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM backtest_runs WHERE backtest_id = ?", (backtest_id,)).fetchone()
-        return dict(row) if row else None
+        return conn.execute("SELECT * FROM backtest_runs WHERE backtest_id = %s", (backtest_id,)).fetchone()
 
 
 def get_backtest_trades(backtest_id: str) -> list[dict]:
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM backtest_trades WHERE backtest_id = ? ORDER BY trade_date",
+        return conn.execute(
+            "SELECT * FROM backtest_trades WHERE backtest_id = %s ORDER BY trade_date",
             (backtest_id,),
         ).fetchall()
-        return [dict(r) for r in rows]
 
 
 def get_backtest_history(limit: int = 20) -> list[dict]:
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM backtest_runs ORDER BY created_at DESC LIMIT ?", (limit,)
+        return conn.execute(
+            "SELECT * FROM backtest_runs ORDER BY created_at DESC LIMIT %s", (limit,)
         ).fetchall()
-        return [dict(r) for r in rows]
 
 
 # --- Settings ---
 
 def get_setting(key: str) -> str | None:
     with get_db() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        row = conn.execute("SELECT value FROM settings WHERE key = %s", (key,)).fetchone()
         return row["value"] if row else None
 
 
 def set_setting(key: str, value: str | None):
     with get_db() as conn:
         if value is None or value == "":
-            conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+            conn.execute("DELETE FROM settings WHERE key = %s", (key,))
         else:
             conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                "INSERT INTO settings (key, value) VALUES (%s, %s) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
                 (key, value),
             )
 
@@ -440,16 +466,12 @@ def get_all_settings() -> dict:
 # --- Paper Trades ---
 
 def add_paper_trade(data: dict) -> int:
-    """Open a new paper trade. Returns the new row ID."""
-    # Migrate: add columns if missing (safe no-op if they already exist)
     _migrate_paper_trades_columns()
 
     triggered = data.get("triggered_signals")
     if triggered is not None and not isinstance(triggered, str):
         triggered = json.dumps(triggered)
 
-    # Tag the trade with today's market regime so we can later compute
-    # conditional signal performance (some signals only work in BULL, etc.)
     regime_at_entry = data.get("regime_at_entry")
     if regime_at_entry is None:
         try:
@@ -464,7 +486,8 @@ def add_paper_trade(data: dict) -> int:
             (ticker, source, strategy, direction, signal, score, confidence,
              success_probability, triggered_signals, entry_price, notes, regime_at_entry,
              stop_loss, target_1, target_2, time_horizon, analysis_task_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id""",
             (
                 data.get("ticker"),
                 data.get("source", "manual"),
@@ -485,13 +508,24 @@ def add_paper_trade(data: dict) -> int:
                 data.get("analysis_task_id"),
             ),
         )
+        row = cursor.fetchone()
+        if row and "id" in row:
+            return row["id"]
         return cursor.lastrowid
 
 
 def _migrate_paper_trades_columns():
-    """Add new columns to paper_trades if they don't exist (for existing DBs)."""
     with get_db() as conn:
-        existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)").fetchall()}
+        try:
+            existing = {
+                r["column_name"].lower()
+                for r in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'paper_trades'"
+                ).fetchall()
+            }
+        except Exception:
+            existing = set()
+
         for col, ddl in [
             ("strategy", "TEXT"),
             ("confidence", "TEXT"),
@@ -518,30 +552,25 @@ def list_paper_trades(status: str | None = None) -> list[dict]:
     with get_db() as conn:
         if status:
             rows = conn.execute(
-                "SELECT * FROM paper_trades WHERE status = ? ORDER BY entry_datetime DESC",
+                "SELECT * FROM paper_trades WHERE status = %s ORDER BY entry_datetime DESC",
                 (status,),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT * FROM paper_trades ORDER BY entry_datetime DESC"
             ).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
+        for d in rows:
             if d.get("triggered_signals"):
                 try:
                     d["triggered_signals"] = json.loads(d["triggered_signals"])
                 except Exception:
                     pass
-            result.append(d)
-        return result
+        return rows
 
 
 def update_paper_trade_prices(trade_id: int, prices: dict):
-    """Update tracked prices + P&L percentages for a paper trade."""
     with get_db() as conn:
-        # Get current trade to calculate P&L
-        row = conn.execute("SELECT * FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
+        row = conn.execute("SELECT * FROM paper_trades WHERE id = %s", (trade_id,)).fetchone()
         if not row:
             return
         entry = row["entry_price"]
@@ -555,16 +584,16 @@ def update_paper_trade_prices(trade_id: int, prices: dict):
 
         conn.execute(
             """UPDATE paper_trades SET
-                price_1d = COALESCE(?, price_1d),
-                price_3d = COALESCE(?, price_3d),
-                price_5d = COALESCE(?, price_5d),
-                price_10d = COALESCE(?, price_10d),
-                pnl_1d_pct = COALESCE(?, pnl_1d_pct),
-                pnl_3d_pct = COALESCE(?, pnl_3d_pct),
-                pnl_5d_pct = COALESCE(?, pnl_5d_pct),
-                pnl_10d_pct = COALESCE(?, pnl_10d_pct),
-                updated_at = datetime('now')
-               WHERE id = ?""",
+                price_1d = COALESCE(%s, price_1d),
+                price_3d = COALESCE(%s, price_3d),
+                price_5d = COALESCE(%s, price_5d),
+                price_10d = COALESCE(%s, price_10d),
+                pnl_1d_pct = COALESCE(%s, pnl_1d_pct),
+                pnl_3d_pct = COALESCE(%s, pnl_3d_pct),
+                pnl_5d_pct = COALESCE(%s, pnl_5d_pct),
+                pnl_10d_pct = COALESCE(%s, pnl_10d_pct),
+                updated_at = CURRENT_TIMESTAMP
+               WHERE id = %s""",
             (
                 prices.get("price_1d"),
                 prices.get("price_3d"),
@@ -582,36 +611,30 @@ def update_paper_trade_prices(trade_id: int, prices: dict):
 def update_paper_trade_status(trade_id: int, status: str):
     with get_db() as conn:
         conn.execute(
-            "UPDATE paper_trades SET status = ?, updated_at = datetime('now') WHERE id = ?",
+            "UPDATE paper_trades SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
             (status, trade_id),
         )
 
 
 def save_simulated_exit(trade_id: int, exit_price: float, pnl_pct: float, reason: str):
-    """Save the simulated exit result for a paper trade.
-
-    Only marks as expired if the exit was triggered by a strategy condition
-    (stop-loss, target, time horizon). 'held_to_present' means the trade
-    is still open in simulation — keep it active.
-    """
     should_expire = reason != "held_to_present"
     status = "expired" if should_expire else "active"
     with get_db() as conn:
         conn.execute(
             """UPDATE paper_trades SET
-                simulated_exit_price = ?,
-                simulated_pnl_pct = ?,
-                exit_reason = ?,
-                status = ?,
-                updated_at = datetime('now')
-               WHERE id = ?""",
+                simulated_exit_price = %s,
+                simulated_pnl_pct = %s,
+                exit_reason = %s,
+                status = %s,
+                updated_at = CURRENT_TIMESTAMP
+               WHERE id = %s""",
             (exit_price, pnl_pct, reason, status, trade_id),
         )
 
 
 def delete_paper_trade(trade_id: int):
     with get_db() as conn:
-        conn.execute("DELETE FROM paper_trades WHERE id = ?", (trade_id,))
+        conn.execute("DELETE FROM paper_trades WHERE id = %s", (trade_id,))
 
 
 # --- Recommender Backtest ---
@@ -622,7 +645,7 @@ def save_recommender_backtest_row(data: dict):
             """INSERT INTO recommender_backtests
             (run_id, trade_date, ticker, signal, score, confidence, success_probability,
              entry_price, return_1d, return_3d, return_5d, return_10d, outcome_1d, outcome_5d)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 data.get("run_id"),
                 data.get("trade_date"),
@@ -644,16 +667,15 @@ def save_recommender_backtest_row(data: dict):
 
 def get_recommender_backtest(run_id: str) -> list[dict]:
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM recommender_backtests WHERE run_id = ? ORDER BY trade_date, ticker",
+        return conn.execute(
+            "SELECT * FROM recommender_backtests WHERE run_id = %s ORDER BY trade_date, ticker",
             (run_id,),
         ).fetchall()
-        return [dict(r) for r in rows]
 
 
 def list_recommender_backtest_runs() -> list[dict]:
     with get_db() as conn:
-        rows = conn.execute(
+        return conn.execute(
             """SELECT run_id, trade_date,
                       COUNT(*) as signals,
                       SUM(CASE WHEN outcome_5d='win' THEN 1 ELSE 0 END) as wins,
@@ -664,4 +686,3 @@ def list_recommender_backtest_runs() -> list[dict]:
                GROUP BY run_id
                ORDER BY MAX(created_at) DESC"""
         ).fetchall()
-        return [dict(r) for r in rows]

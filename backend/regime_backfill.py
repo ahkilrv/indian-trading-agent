@@ -24,8 +24,8 @@ def backfill_regime_at_entry(limit: int | None = None) -> dict:
         rows = conn.execute(
             """SELECT id, entry_date FROM paper_trades
                WHERE regime_at_entry IS NULL
-               ORDER BY entry_date DESC
-               LIMIT ?""",
+                ORDER BY entry_date DESC
+                LIMIT %s""",
             (limit if limit is not None else 100000,),
         ).fetchall()
 
@@ -49,8 +49,8 @@ def backfill_regime_at_entry(limit: int | None = None) -> dict:
                 continue
             with get_db() as conn:
                 conn.execute(
-                    f"UPDATE paper_trades SET regime_at_entry = ? "
-                    f"WHERE id IN ({','.join(['?'] * len(ids))})",
+                    f"UPDATE paper_trades SET regime_at_entry = %s "
+                    f"WHERE id IN ({','.join(['%s'] * len(ids))})",
                     [regime, *ids],
                 )
                 updated += len(ids)

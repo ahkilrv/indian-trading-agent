@@ -42,7 +42,7 @@ def _ensure_table():
                 dii_sell REAL,
                 dii_net REAL,
                 source TEXT,
-                fetched_at TEXT DEFAULT (datetime('now'))
+                fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -175,10 +175,10 @@ def get_today_data(force_refresh: bool = False) -> Optional[dict]:
     if not force_refresh:
         with get_db() as conn:
             row = conn.execute(
-                "SELECT * FROM fii_dii_history WHERE date = ?", (today_str,)
+                "SELECT * FROM fii_dii_history WHERE date = %s", (today_str,)
             ).fetchone()
             if row:
-                d = dict(row)
+                d = row
                 # If fetched within last hour, use cache
                 fetched = datetime.fromisoformat(d["fetched_at"])
                 if (datetime.now() - fetched).total_seconds() < 3600:
@@ -201,9 +201,13 @@ def save_data(data: dict):
     _ensure_table()
     with get_db() as conn:
         conn.execute(
-            """INSERT OR REPLACE INTO fii_dii_history
+            """INSERT INTO fii_dii_history
             (date, fii_buy, fii_sell, fii_net, dii_buy, dii_sell, dii_net, source, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (date) DO UPDATE SET
+            fii_buy = EXCLUDED.fii_buy, fii_sell = EXCLUDED.fii_sell, fii_net = EXCLUDED.fii_net,
+            dii_buy = EXCLUDED.dii_buy, dii_sell = EXCLUDED.dii_sell, dii_net = EXCLUDED.dii_net,
+            source = EXCLUDED.source, fetched_at = CURRENT_TIMESTAMP""",
             (
                 data.get("date"),
                 data.get("fii_buy"),
@@ -248,9 +252,9 @@ def get_data_for_date(date_str: str) -> Optional[dict]:
     _ensure_table()
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM fii_dii_history WHERE date = ?", (date_str,)
+            "SELECT * FROM fii_dii_history WHERE date = %s", (date_str,)
         ).fetchone()
-        return dict(row) if row else None
+        return row if row else None
 
 
 def get_recent_history(days: int = 10) -> list[dict]:
@@ -258,9 +262,9 @@ def get_recent_history(days: int = 10) -> list[dict]:
     _ensure_table()
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM fii_dii_history ORDER BY date DESC LIMIT ?", (days,)
+            "SELECT * FROM fii_dii_history ORDER BY date DESC LIMIT %s", (days,)
         ).fetchall()
-        return [dict(r) for r in rows]
+        return rows
 
 
 def get_market_bias() -> dict:

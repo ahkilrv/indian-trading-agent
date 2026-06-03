@@ -75,15 +75,17 @@ def compute_calibration(window_days: int = 180) -> dict:
             ],
         }
     """
+    from datetime import date, timedelta
+    cutoff = (date.today() - timedelta(days=window_days)).isoformat()
     with get_db() as conn:
         rows = conn.execute(
-            f"""
-            SELECT success_probability, pnl_5d_pct, direction
-            FROM paper_trades
-            WHERE pnl_5d_pct IS NOT NULL
-              AND success_probability IS NOT NULL
-              AND entry_date >= date('now', '-{int(window_days)} days')
-            """
+            """SELECT success_probability, pnl_5d_pct, direction
+               FROM paper_trades
+               WHERE pnl_5d_pct IS NOT NULL
+                 AND success_probability IS NOT NULL
+                 AND entry_date >= %s
+            """,
+            (cutoff,),
         ).fetchall()
 
     if not rows:

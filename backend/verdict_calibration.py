@@ -46,7 +46,7 @@ def snapshot_today(force: bool = False) -> dict:
     with get_db() as conn:
         if not force:
             existing = conn.execute(
-                "SELECT snapshot_date FROM verdict_history WHERE snapshot_date = ?",
+                "SELECT snapshot_date FROM verdict_history WHERE snapshot_date = %s",
                 (today,),
             ).fetchone()
             if existing:
@@ -64,12 +64,24 @@ def snapshot_today(force: bool = False) -> dict:
 
     with get_db() as conn:
         conn.execute(
-            """INSERT OR REPLACE INTO verdict_history
+            """INSERT INTO verdict_history
             (snapshot_date, verdict, label, action,
              caution_count, favorable_count, caution_flags, favorable_flags,
              position_size_pct, max_trades_today, min_conviction,
              nifty_close, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (snapshot_date) DO UPDATE SET
+            verdict = EXCLUDED.verdict, label = EXCLUDED.label,
+            action = EXCLUDED.action,
+            caution_count = EXCLUDED.caution_count,
+            favorable_count = EXCLUDED.favorable_count,
+            caution_flags = EXCLUDED.caution_flags,
+            favorable_flags = EXCLUDED.favorable_flags,
+            position_size_pct = EXCLUDED.position_size_pct,
+            max_trades_today = EXCLUDED.max_trades_today,
+            min_conviction = EXCLUDED.min_conviction,
+            nifty_close = EXCLUDED.nifty_close,
+            updated_at = CURRENT_TIMESTAMP""",
             (
                 today,
                 verdict_data.get("verdict"),
@@ -165,11 +177,11 @@ def backfill_outcomes(max_age_days: int = 30) -> dict:
 
         if updates:
             updates["updated_at"] = datetime.now().isoformat(timespec="seconds")
-            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            set_clause = ", ".join(f"{k} = %s" for k in updates)
             params = list(updates.values()) + [r["snapshot_date"]]
             with get_db() as conn:
                 conn.execute(
-                    f"UPDATE verdict_history SET {set_clause} WHERE snapshot_date = ?",
+                    f"UPDATE verdict_history SET {set_clause} WHERE snapshot_date = %s",
                     params,
                 )
             updated += 1

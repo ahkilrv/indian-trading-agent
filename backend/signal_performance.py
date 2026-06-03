@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import date, timedelta
 from typing import Optional
 
 from backend.db import get_db, get_setting, set_setting
@@ -128,17 +129,18 @@ def compute_signal_performance_by_regime(window_days: int = 180) -> dict:
     # Ensure regime_at_entry column exists (safe no-op if migration already ran)
     _migrate_paper_trades_columns()
 
+    cutoff = (date.today() - timedelta(days=window_days)).isoformat()
     with get_db() as conn:
         rows = conn.execute(
-            f"""
-            SELECT direction, signal, pnl_5d_pct, triggered_signals,
-                   entry_date, regime_at_entry
-            FROM paper_trades
-            WHERE pnl_5d_pct IS NOT NULL
-              AND triggered_signals IS NOT NULL
-              AND regime_at_entry IS NOT NULL
-              AND entry_date >= date('now', '-{int(window_days)} days')
-            """
+            """SELECT direction, signal, pnl_5d_pct, triggered_signals,
+                      entry_date, regime_at_entry
+               FROM paper_trades
+               WHERE pnl_5d_pct IS NOT NULL
+                 AND triggered_signals IS NOT NULL
+                 AND regime_at_entry IS NOT NULL
+                 AND entry_date >= %s
+            """,
+            (cutoff,),
         ).fetchall()
 
     REGIMES = ["BULL", "BEAR", "SIDEWAYS", "HIGH_VOL"]
@@ -271,15 +273,16 @@ def compute_signal_performance(window_days: int = 90) -> dict:
     from backend.recommender import DEFAULT_WEIGHTS
 
     # Pull closed trades with non-null 5d P&L
+    cutoff = (date.today() - timedelta(days=window_days)).isoformat()
     with get_db() as conn:
         rows = conn.execute(
-            f"""
-            SELECT direction, signal, pnl_5d_pct, triggered_signals, entry_date
-            FROM paper_trades
-            WHERE pnl_5d_pct IS NOT NULL
-              AND triggered_signals IS NOT NULL
-              AND entry_date >= date('now', '-{int(window_days)} days')
-            """
+            """SELECT direction, signal, pnl_5d_pct, triggered_signals, entry_date
+               FROM paper_trades
+               WHERE pnl_5d_pct IS NOT NULL
+                 AND triggered_signals IS NOT NULL
+                 AND entry_date >= %s
+            """,
+            (cutoff,),
         ).fetchall()
 
     total_closed = len(rows)

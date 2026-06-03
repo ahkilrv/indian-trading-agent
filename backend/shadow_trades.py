@@ -21,7 +21,7 @@ multiple times in a day only records one shadow per ticker.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from backend.db import get_db
@@ -56,12 +56,12 @@ def record_shadow_trades_from_recommendations(recs: dict) -> dict:
     with get_db() as conn:
         existing_user_tickers = {
             r["ticker"] for r in conn.execute(
-                "SELECT DISTINCT ticker FROM paper_trades WHERE entry_date = ?", (today,),
+                "SELECT DISTINCT ticker FROM paper_trades WHERE entry_date = %s", (today,),
             ).fetchall()
         }
         existing_shadow_tickers = {
             r["ticker"] for r in conn.execute(
-                "SELECT ticker FROM shadow_trades WHERE signal_date = ?", (today,),
+                "SELECT ticker FROM shadow_trades WHERE signal_date = %s", (today,),
             ).fetchall()
         }
 
@@ -92,10 +92,11 @@ def record_shadow_trades_from_recommendations(recs: dict) -> dict:
         with get_db() as conn:
             try:
                 conn.execute(
-                    """INSERT OR IGNORE INTO shadow_trades
+                    """INSERT INTO shadow_trades
                     (ticker, signal_date, signal, score, confidence, success_probability,
                      triggered_signals, regime_at_entry, entry_price, user_tracked)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (ticker, signal_date) DO NOTHING""",
                     (
                         ticker,
                         today,
@@ -157,12 +158,12 @@ def refresh_shadow_prices() -> dict:
 
         if updates:
             updates["updated_at"] = datetime.now().isoformat(timespec="seconds")
-            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            set_clause = ", ".join(f"{k} = %s" for k in updates)
             params = list(updates.values()) + [r["ticker"], r["signal_date"]]
             with get_db() as conn:
                 conn.execute(
                     f"UPDATE shadow_trades SET {set_clause} "
-                    f"WHERE ticker = ? AND signal_date = ?",
+                    f"WHERE ticker = %s AND signal_date = %s",
                     params,
                 )
             updated += 1
@@ -176,15 +177,18 @@ def list_shadow_trades(window_days: int = 90, only_ripe: bool = False) -> list[d
     Args:
         only_ripe: if True, only include trades with at least 5d P&L recorded.
     """
+    from datetime import date, datetime, timedelta
+    cutoff = (date.today() - timedelta(days=window_days)).isoformat()
     with get_db() as conn:
         rows = conn.execute(
-            f"""SELECT * FROM shadow_trades
-                WHERE signal_date >= date('now', '-{int(window_days)} days')
-                ORDER BY signal_date DESC, ticker ASC"""
+            """SELECT * FROM shadow_trades
+                WHERE signal_date >= %s
+                ORDER BY signal_date DESC, ticker ASC""",
+            (cutoff,),
         ).fetchall()
     out = []
     for r in rows:
-        d = dict(r)
+        d = r
         if only_ripe and d.get("pnl_5d_pct") is None:
             continue
         if d.get("triggered_signals"):
@@ -202,13 +206,15 @@ def shadow_vs_user_comparison(window_days: int = 90) -> dict:
     Reveals false negatives: shadow win rate > user-tracked win rate means
     the user is systematically skipping winners.
     """
+    cutoff = (date.today() - timedelta(days=window_days)).isoformat()
     with get_db() as conn:
         rows = conn.execute(
-            f"""SELECT signal, confidence, user_tracked,
+            """SELECT signal, confidence, user_tracked,
                        pnl_1d_pct, pnl_3d_pct, pnl_5d_pct, pnl_10d_pct
                 FROM shadow_trades
-                WHERE signal_date >= date('now', '-{int(window_days)} days')
-                  AND pnl_5d_pct IS NOT NULL"""
+                WHERE signal_date >= %s
+                  AND pnl_5d_pct IS NOT NULL""",
+            (cutoff,),
         ).fetchall()
 
     def stats(subset: list) -> dict:
