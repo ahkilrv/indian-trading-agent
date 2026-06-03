@@ -183,6 +183,9 @@ class FinancialSituationMemory:
 
     # --- Public API ---
 
+    # Max entries before auto-pruning oldest (by decay) to control memory growth.
+    MAX_ENTRIES = 200
+
     def add_situations(self, situations_and_advice: List[Tuple[str, str]]):
         now = _now_iso()
         for situation, recommendation in situations_and_advice:
@@ -193,6 +196,12 @@ class FinancialSituationMemory:
                 "last_accessed": None,
                 "hit_count": 0,
             })
+        # Auto-prune if over cap — remove oldest entries past DECAY_GRACE_DAYS
+        if len(self.entries) > self.MAX_ENTRIES:
+            self.prune(max_age_days=DECAY_HALF_LIFE_DAYS, min_hits=1)
+        # Also cap at 3x MAX_ENTRIES as hard safety net
+        if len(self.entries) > self.MAX_ENTRIES * 3:
+            self.entries = self.entries[-self.MAX_ENTRIES:]
         self._rebuild_index()
         self._save_to_disk()
 

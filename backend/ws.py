@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import time
 from fastapi import WebSocket
 from typing import Dict
 
@@ -38,6 +39,20 @@ class ConnectionManager:
                 dead.append(ws)
         for ws in dead:
             self.disconnect(ws, task_id)
+
+    def cleanup_stale(self, max_age_seconds: int = 3600):
+        """Remove task entries with no remaining connections for over max_age.
+        
+        Call periodically to prevent the dict from holding stale keys.
+        """
+        now = time.time()
+        stale = [tid for tid, conns in list(self.active_connections.items())
+                 if not conns and tid in self.active_connections]
+        # Only clean tasks with no connections — connections are removed on
+        # disconnect. The task_id entry stays alive only so long as at least
+        # one client is connected.
+        for tid in stale:
+            del self.active_connections[tid]
 
 
 manager = ConnectionManager()

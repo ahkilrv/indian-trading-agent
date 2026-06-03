@@ -205,7 +205,7 @@ def run_scan(
     stocks_data = []
     failed = 0
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {executor.submit(_fetch_stock_data, ticker): ticker for ticker in stocks}
         for i, future in enumerate(as_completed(futures)):
             result = future.result()
@@ -218,6 +218,8 @@ def run_scan(
 
     if on_progress:
         on_progress(f"Data fetched: {len(stocks_data)} OK, {failed} failed")
+
+    import gc; gc.collect()
 
     results = {}
 
@@ -236,9 +238,14 @@ def run_scan(
         if on_progress:
             on_progress(f"Breakout scan: {len(results['breakout'])} stocks breaking {breakout_lookback}-day high")
 
+    scanned_count = len(stocks_data)
+    # Clear the large stocks_data list to free memory
+    del stocks_data
+    import gc; gc.collect()
+
     return {
         "universe": universe,
         "total_stocks": len(stocks),
-        "scanned": len(stocks_data),
+        "scanned": scanned_count,
         "results": results,
     }

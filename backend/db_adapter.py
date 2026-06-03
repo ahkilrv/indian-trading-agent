@@ -6,7 +6,26 @@ The adapter auto-translates to SQLite dialect when running locally.
 
 import os
 import re
+import threading
 from contextlib import contextmanager
+
+
+# Connection pool for PostgreSQL (lazy-initialized, thread-safe)
+_pg_pool = None
+_pg_pool_lock = threading.Lock()
+
+
+def _get_pg_pool():
+    """Get or create the PostgreSQL connection pool (min=1, max=2)."""
+    global _pg_pool
+    if _pg_pool is None:
+        with _pg_pool_lock:
+            if _pg_pool is None:
+                import psycopg2
+                from psycopg2 import pool
+                dsn = os.environ["DATABASE_URL"]
+                _pg_pool = pool.ThreadedConnectionPool(1, 2, dsn)
+    return _pg_pool
 
 
 def _is_postgres():
@@ -67,6 +86,11 @@ class _PGWrapper:
 
     def execute(self, sql: str, params=None):
         from psycopg2.extras import RealDictCursor
+        if self._cursor:
+            try:
+                self._cursor.close()
+            except Exception:
+                pass
         self._cursor = self._conn.cursor(cursor_factory=RealDictCursor)
         self._cursor.execute(sql, params or ())
         return _CursorWrapper(self._cursor, is_pg=True)
@@ -104,12 +128,14 @@ def _get_sqlite_path() -> str:
 @contextmanager
 def get_db():
     if _is_postgres():
-        import psycopg2
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
-        conn.autocommit = False
-        yield _PGWrapper(conn)
-        conn.commit()
-        conn.close()
+        pool = _get_pg_pool()
+        conn = pool.getconn()
+        try:
+            conn.autocommit = False
+            yield _PGWrapper(conn)
+            conn.commit()
+        finally:
+            pool.putconn(conn)
     else:
         import sqlite3
         conn = sqlite3.connect(_get_sqlite_path())

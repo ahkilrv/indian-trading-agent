@@ -618,9 +618,9 @@ def run_recommender_backtest(
 
     all_results = []
 
-    for d in dates:
-        # Analyze all stocks for this date in parallel
-        with ThreadPoolExecutor(max_workers=10) as executor:
+    # Reuse a single executor across all dates to avoid repeated thread pool overhead
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        for d in dates:
             futures = [executor.submit(_analyze_stock_at_date, ticker, d) for ticker in stocks]
             for f in as_completed(futures):
                 result = f.result()
@@ -666,3 +666,4 @@ def run_recommender_backtest(
         "avg_return_5d": round(avg_return_5d, 2),
         "by_signal": by_signal,
     }
+    import gc; gc.collect()

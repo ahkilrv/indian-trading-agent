@@ -17,8 +17,33 @@ from tradingagents.agents import compile_report
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
-# In-memory task state
+# In-memory task state — bounded to prevent unbounded memory growth.
+# Completed/errored tasks are evicted after TTL_SECONDS.
 _tasks: dict[str, dict] = {}
+_TASK_MAX_SIZE = 50
+_TASK_TTL_SECONDS = 1800  # 30 minutes
+
+
+def _tasks_cleanup():
+    """Evict old completed/errored tasks to bound memory growth."""
+    now = time.time()
+    n_before = len(_tasks)
+    stale = [
+        tid for tid, t in list(_tasks.items())
+        if t.get("status") in ("completed", "error", "stopped")
+        and t.get("_completed_at", 0) + _TASK_TTL_SECONDS < now
+    ]
+    for tid in stale:
+        del _tasks[tid]
+    # If still over max, evict oldest completed ones
+    if len(_tasks) > _TASK_MAX_SIZE:
+        completed = sorted(
+            [(tid, t) for tid, t in _tasks.items() if t.get("status") in ("completed", "error", "stopped")],
+            key=lambda x: x[1].get("_completed_at", 0),
+        )
+        to_remove = len(_tasks) - _TASK_MAX_SIZE
+        for tid, _ in completed[:to_remove]:
+            del _tasks[tid]
 
 
 def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict, selected_analysts: list[str] = None):
@@ -74,6 +99,7 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
                     "message": f"Analysis stopped after {chunk_count} chunks",
                 })
                 _tasks[task_id]["status"] = "stopped"
+                _tasks[task_id]["_completed_at"] = time.time()
                 break
             # Heartbeat — let frontend know we're still alive
             last_message = ""
@@ -238,10 +264,12 @@ def _run_analysis_sync(task_id: str, ticker: str, trade_date: str, config: dict,
         save_analysis(task_id, result_data)
         _tasks[task_id]["status"] = "completed"
         _tasks[task_id]["result"] = result_data
+        _tasks[task_id]["_completed_at"] = time.time()
 
     except Exception as e:
         _tasks[task_id]["status"] = "error"
         _tasks[task_id]["error"] = str(e)
+        _tasks[task_id]["_completed_at"] = time.time()
         _safe_send({
             "type": "error", "message": str(e),
         })
@@ -259,6 +287,8 @@ def run_analysis(req: AnalysisRequest):
     config["max_debate_rounds"] = req.max_debate_rounds
     config["max_risk_discuss_rounds"] = req.max_risk_discuss_rounds
     config["output_language"] = req.output_language
+
+    _tasks_cleanup()
 
     _tasks[task_id] = {
         "status": "pending",

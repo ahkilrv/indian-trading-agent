@@ -128,10 +128,11 @@ class TradingAgentsGraph:
         self.reflector = Reflector(self.quick_thinking_llm)
         self.signal_processor = SignalProcessor(self.quick_thinking_llm)
 
-        # State tracking
+        # State tracking — bounded to 5 entries to prevent memory growth
         self.curr_state = None
         self.ticker = None
-        self.log_states_dict = {}  # date to full state dict
+        self.log_states_dict: dict[str, dict] = {}
+        self._max_log_entries = 5
 
         # Set up the graph
         self.graph = self.graph_setup.setup_graph(selected_analysts)
@@ -230,8 +231,12 @@ class TradingAgentsGraph:
         # Store current state for reflection
         self.curr_state = final_state
 
-        # Log state
+        # Log state (bounded to _max_log_entries)
         self._log_state(trade_date, final_state)
+        # Evict oldest entries if over cap
+        while len(self.log_states_dict) > self._max_log_entries:
+            oldest = min(self.log_states_dict.keys())
+            del self.log_states_dict[oldest]
 
         # Return decision and processed signal
         return final_state, self.process_signal(final_state["final_trade_decision"])

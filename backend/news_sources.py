@@ -175,7 +175,7 @@ def fetch_all_news(max_per_source: int = 10) -> list[dict]:
     all_articles = []
     seen_titles = set()
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = []
 
         # RSS feeds

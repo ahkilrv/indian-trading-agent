@@ -101,10 +101,12 @@ def measure_gap_strategy(
                 })
         return trades
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [executor.submit(_analyze_stock, t) for t in stocks]
         for f in as_completed(futures):
             all_trades.extend(f.result())
+
+    import gc; gc.collect()
 
     return _summarize_trades(all_trades, hold_days, "Gap Up/Down Strategy")
 
@@ -168,10 +170,12 @@ def measure_volume_strategy(
                 })
         return trades
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [executor.submit(_analyze_stock, t) for t in stocks]
         for f in as_completed(futures):
             all_trades.extend(f.result())
+
+    import gc; gc.collect()
 
     return _summarize_trades(all_trades, hold_days, "Volume Spike Strategy")
 
@@ -236,10 +240,12 @@ def measure_breakout_strategy(
                 })
         return trades
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [executor.submit(_analyze_stock, t) for t in stocks]
         for f in as_completed(futures):
             all_trades.extend(f.result())
+
+    import gc; gc.collect()
 
     return _summarize_trades(all_trades, hold_days, "Breakout Strategy")
 
@@ -301,10 +307,12 @@ def measure_sr_bounce_strategy(
                 })
         return trades
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [executor.submit(_analyze_stock, t) for t in stocks]
         for f in as_completed(futures):
             all_trades.extend(f.result())
+
+    import gc; gc.collect()
 
     return _summarize_trades(all_trades, hold_days, "Support Bounce Strategy")
 

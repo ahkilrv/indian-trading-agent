@@ -1,60 +1,111 @@
-from typing import Annotated
+import importlib
+import logging
 
-# Import from vendor-specific modules
-from .y_finance import (
-    get_YFin_data_online,
-    get_stock_stats_indicators_window,
-    get_fundamentals as get_yfinance_fundamentals,
-    get_balance_sheet as get_yfinance_balance_sheet,
-    get_cashflow as get_yfinance_cashflow,
-    get_income_statement as get_yfinance_income_statement,
-    get_insider_transactions as get_yfinance_insider_transactions,
-)
-from .yfinance_news import get_news_yfinance, get_global_news_yfinance
-from .alpha_vantage import (
-    get_stock as get_alpha_vantage_stock,
-    get_indicator as get_alpha_vantage_indicator,
-    get_fundamentals as get_alpha_vantage_fundamentals,
-    get_balance_sheet as get_alpha_vantage_balance_sheet,
-    get_cashflow as get_alpha_vantage_cashflow,
-    get_income_statement as get_alpha_vantage_income_statement,
-    get_insider_transactions as get_alpha_vantage_insider_transactions,
-    get_news as get_alpha_vantage_news,
-    get_global_news as get_alpha_vantage_global_news,
-)
-from .alpha_vantage_common import AlphaVantageRateLimitError
+logger = logging.getLogger(__name__)
 
-# Import Indian market data functions
-from .nse_data import (
-    get_fii_dii_activity,
-    get_bulk_block_deals,
-    get_delivery_percentage,
-    get_nse_stock_data,
-    get_nse_indicators,
-    get_nse_http_stock_data,
-    get_nse_http_indicators,
-)
+# Maps module_path -> list of (func_name, alias) to lazy-import on first use.
+_LAZY_IMPORTS: dict[str, list[tuple[str, str]]] = {
+    "tradingagents.dataflows.y_finance": [
+        ("get_YFin_data_online", "get_YFin_data_online"),
+        ("get_stock_stats_indicators_window", "get_stock_stats_indicators_window"),
+        ("get_fundamentals", "get_yfinance_fundamentals"),
+        ("get_balance_sheet", "get_yfinance_balance_sheet"),
+        ("get_cashflow", "get_yfinance_cashflow"),
+        ("get_income_statement", "get_yfinance_income_statement"),
+        ("get_insider_transactions", "get_yfinance_insider_transactions"),
+    ],
+    "tradingagents.dataflows.yfinance_news": [
+        ("get_news_yfinance", "get_news_yfinance"),
+        ("get_global_news_yfinance", "get_global_news_yfinance"),
+    ],
+    "tradingagents.dataflows.alpha_vantage": [
+        ("get_stock", "get_alpha_vantage_stock"),
+        ("get_indicator", "get_alpha_vantage_indicator"),
+        ("get_fundamentals", "get_alpha_vantage_fundamentals"),
+        ("get_balance_sheet", "get_alpha_vantage_balance_sheet"),
+        ("get_cashflow", "get_alpha_vantage_cashflow"),
+        ("get_income_statement", "get_alpha_vantage_income_statement"),
+        ("get_insider_transactions", "get_alpha_vantage_insider_transactions"),
+        ("get_news", "get_alpha_vantage_news"),
+        ("get_global_news", "get_alpha_vantage_global_news"),
+    ],
+    "tradingagents.dataflows.alpha_vantage_common": [
+        ("AlphaVantageRateLimitError", "AlphaVantageRateLimitError"),
+    ],
+    "tradingagents.dataflows.nse_data": [
+        ("get_fii_dii_activity", "get_fii_dii_activity"),
+        ("get_bulk_block_deals", "get_bulk_block_deals"),
+        ("get_delivery_percentage", "get_delivery_percentage"),
+        ("get_nse_stock_data", "get_nse_stock_data"),
+        ("get_nse_indicators", "get_nse_indicators"),
+        ("get_nse_http_stock_data", "get_nse_http_stock_data"),
+        ("get_nse_http_indicators", "get_nse_http_indicators"),
+    ],
+    "tradingagents.dataflows.dhan_data": [
+        ("get_dhan_stock_data", "get_dhan_stock_data"),
+        ("get_dhan_indicators", "get_dhan_indicators"),
+    ],
+    "tradingagents.dataflows.fyers_data": [
+        ("get_fyers_stock_data", "get_fyers_stock_data"),
+        ("get_fyers_indicators", "get_fyers_indicators"),
+    ],
+    "tradingagents.dataflows.pytrends_data": [
+        ("get_trends_data", "get_trends_data"),
+    ],
+    "tradingagents.dataflows.rss_news": [
+        ("get_rss_ticker_news", "get_rss_ticker_news"),
+    ],
+    "tradingagents.dataflows.serp_news": [
+        ("get_serp_news_data", "get_serp_news_data"),
+    ],
+    "tradingagents.dataflows.serp_youtube": [
+        ("get_youtube_sentiment_data", "get_youtube_sentiment_data"),
+    ],
+    "tradingagents.dataflows.serp_finance": [
+        ("get_google_finance_data", "get_google_finance_data"),
+    ],
+    "tradingagents.dataflows.serp_forums": [
+        ("get_forums_sentiment_data", "get_forums_sentiment_data"),
+    ],
+    "tradingagents.dataflows.screener_fundamentals": [
+        ("get_screener_fundamentals", "get_screener_fundamentals"),
+    ],
+}
 
-# Import Dhan broker API
-from .dhan_data import get_dhan_stock_data, get_dhan_indicators
+# Translation table: alias -> (module_path, func_name) for lazy resolution
+_FUNC_MAP: dict[str, tuple[str, str]] = {}
+for mod_path, funcs in _LAZY_IMPORTS.items():
+    for func_name, alias in funcs:
+        _FUNC_MAP[alias] = (mod_path, func_name)
 
-# Import Fyers API data functions
-from .fyers_data import get_fyers_stock_data, get_fyers_indicators
+# Cache for imported modules (lazy, sticky per process)
+_MODULE_CACHE: dict[str, object] = {}
 
-# Import social sentiment and RSS news data functions
-from .pytrends_data import get_trends_data
-from .rss_news import get_rss_ticker_news
 
-# Import SerpAPI data functions
-from .serp_news import get_serp_news_data
-from .serp_youtube import get_youtube_sentiment_data
-from .serp_finance import get_google_finance_data
-from .serp_forums import get_forums_sentiment_data
+def _lazy_import(alias: str):
+    """Import and return a callable by alias, caching the module."""
+    if alias in _MODULE_CACHE:
+        return _MODULE_CACHE[alias]
+    mod_path, func_name = _FUNC_MAP[alias]
+    mod = importlib.import_module(mod_path)
+    _MODULE_CACHE[alias] = getattr(mod, func_name)
+    return _MODULE_CACHE[alias]
 
-# Import Screener.in fundamentals
-from .screener_fundamentals import get_screener_fundamentals
 
-# Configuration and routing logic
+def _get_vendor_func(method: str, vendor: str):
+    """Get the vendor implementation function, importing lazily."""
+    key = f"{method}:{vendor}"
+    if key in _MODULE_CACHE:
+        return _MODULE_CACHE[key]
+    vendor_map = _VENDOR_REF_MAP.get(method, {})
+    if vendor not in vendor_map:
+        raise KeyError(f"Vendor '{vendor}' not found for method '{method}'")
+    alias = vendor_map[vendor]
+    func = _lazy_import(alias)
+    _MODULE_CACHE[key] = func
+    return func
+
+
 from .config import get_config
 
 # Tools organized by category
@@ -137,88 +188,91 @@ VENDOR_LIST = [
     "fyers",
 ]
 
-# Mapping of methods to their vendor-specific implementations
-VENDOR_METHODS = {
-    # core_stock_apis
+# Mapping of methods to their vendor-specific implementation aliases (strings).
+# Function references are resolved lazily on first use via _get_vendor_func().
+_VENDOR_REF_MAP: dict[str, dict[str, str]] = {
     "get_stock_data": {
-        "alpha_vantage": get_alpha_vantage_stock,
-        "yfinance": get_YFin_data_online,
-        "fyers": get_fyers_stock_data,
-        "nse": get_nse_stock_data,
-        "nse_http": get_nse_http_stock_data,
-        "dhan": get_dhan_stock_data,
+        "alpha_vantage": "get_alpha_vantage_stock",
+        "yfinance": "get_YFin_data_online",
+        "fyers": "get_fyers_stock_data",
+        "nse": "get_nse_stock_data",
+        "nse_http": "get_nse_http_stock_data",
+        "dhan": "get_dhan_stock_data",
     },
-    # technical_indicators
     "get_indicators": {
-        "alpha_vantage": get_alpha_vantage_indicator,
-        "yfinance": get_stock_stats_indicators_window,
-        "fyers": get_fyers_indicators,
-        "nse": get_nse_indicators,
-        "nse_http": get_nse_http_indicators,
-        "dhan": get_dhan_indicators,
+        "alpha_vantage": "get_alpha_vantage_indicator",
+        "yfinance": "get_stock_stats_indicators_window",
+        "fyers": "get_fyers_indicators",
+        "nse": "get_nse_indicators",
+        "nse_http": "get_nse_http_indicators",
+        "dhan": "get_dhan_indicators",
     },
-    # fundamental_data
     "get_fundamentals": {
-        "screener": get_screener_fundamentals,
-        "alpha_vantage": get_alpha_vantage_fundamentals,
-        "yfinance": get_yfinance_fundamentals,
+        "screener": "get_screener_fundamentals",
+        "alpha_vantage": "get_alpha_vantage_fundamentals",
+        "yfinance": "get_yfinance_fundamentals",
     },
     "get_balance_sheet": {
-        "alpha_vantage": get_alpha_vantage_balance_sheet,
-        "yfinance": get_yfinance_balance_sheet,
+        "alpha_vantage": "get_alpha_vantage_balance_sheet",
+        "yfinance": "get_yfinance_balance_sheet",
     },
     "get_cashflow": {
-        "alpha_vantage": get_alpha_vantage_cashflow,
-        "yfinance": get_yfinance_cashflow,
+        "alpha_vantage": "get_alpha_vantage_cashflow",
+        "yfinance": "get_yfinance_cashflow",
     },
     "get_income_statement": {
-        "alpha_vantage": get_alpha_vantage_income_statement,
-        "yfinance": get_yfinance_income_statement,
+        "alpha_vantage": "get_alpha_vantage_income_statement",
+        "yfinance": "get_yfinance_income_statement",
     },
-    # news_data
     "get_news": {
-        "alpha_vantage": get_alpha_vantage_news,
-        "yfinance": get_news_yfinance,
+        "alpha_vantage": "get_alpha_vantage_news",
+        "yfinance": "get_news_yfinance",
     },
     "get_global_news": {
-        "yfinance": get_global_news_yfinance,
-        "alpha_vantage": get_alpha_vantage_global_news,
+        "yfinance": "get_global_news_yfinance",
+        "alpha_vantage": "get_alpha_vantage_global_news",
     },
     "get_insider_transactions": {
-        "alpha_vantage": get_alpha_vantage_insider_transactions,
-        "yfinance": get_yfinance_insider_transactions,
+        "alpha_vantage": "get_alpha_vantage_insider_transactions",
+        "yfinance": "get_yfinance_insider_transactions",
     },
-    # Indian market data (NSE-specific, no vendor fallback needed)
     "get_fii_dii_activity": {
-        "nse": get_fii_dii_activity,
+        "nse": "get_fii_dii_activity",
     },
     "get_bulk_block_deals": {
-        "nse": get_bulk_block_deals,
+        "nse": "get_bulk_block_deals",
     },
     "get_delivery_percentage": {
-        "nse": get_delivery_percentage,
+        "nse": "get_delivery_percentage",
     },
-    # Social sentiment
     "get_trends": {
-        "pytrends": get_trends_data,
+        "pytrends": "get_trends_data",
     },
-    # Ticker-specific RSS news
     "get_ticker_news": {
-        "rss": get_rss_ticker_news,
+        "rss": "get_rss_ticker_news",
     },
-    # SerpAPI integrations
     "get_serp_news": {
-        "serpapi": get_serp_news_data,
+        "serpapi": "get_serp_news_data",
     },
     "get_youtube_sentiment": {
-        "serpapi": get_youtube_sentiment_data,
+        "serpapi": "get_youtube_sentiment_data",
     },
     "get_google_finance": {
-        "serpapi": get_google_finance_data,
+        "serpapi": "get_google_finance_data",
     },
     "get_forums_sentiment": {
-        "serpapi": get_forums_sentiment_data,
+        "serpapi": "get_forums_sentiment_data",
     },
+}
+
+# Backward-compatible VENDOR_METHODS — keeps the same structure but vendor values
+# are list-of-vendor-strings instead of function references.
+# Backward-compatible: vendor -> alias string lookup for each method.
+# VENDOR_METHODS[method][vendor] returns the alias string (e.g. "get_dhan_stock_data").
+# Keys (vendor names) are also accessible for iteration.
+VENDOR_METHODS: dict[str, dict[str, str]] = {
+    method: dict(vendors)
+    for method, vendors in _VENDOR_REF_MAP.items()
 }
 
 def get_category_for_method(method: str) -> str:
@@ -274,7 +328,10 @@ def get_vendor(category: str, method: str = None) -> str:
     return config.get("data_vendors", {}).get(category, "default")
 
 def route_to_vendor(method: str, *args, **kwargs):
-    """Route method calls to appropriate vendor implementation with fallback support."""
+    """Route method calls to appropriate vendor implementation with fallback support.
+
+    Vendor modules are lazy-imported on first use to reduce memory at startup.
+    """
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
@@ -293,18 +350,14 @@ def route_to_vendor(method: str, *args, **kwargs):
         if vendor not in VENDOR_METHODS[method]:
             continue
 
-        vendor_impl = VENDOR_METHODS[method][vendor]
-        impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
-
         try:
+            impl_func = _get_vendor_func(method, vendor)
             return impl_func(*args, **kwargs)
-        except AlphaVantageRateLimitError:
-            continue  # Only rate limits trigger fallback
         except Exception as exc:
-            # Graceful fallback for NSE (Akamai blocks) and other transient issues.
-            # Log the failure and try the next vendor in the chain.
-            import logging
-            logging.getLogger(__name__).warning(
+            exc_name = type(exc).__name__
+            if exc_name == "AlphaVantageRateLimitError" or "RateLimit" in exc_name:
+                continue
+            logger.warning(
                 "Vendor '%s' failed for '%s': %s. Falling through to next vendor.",
                 vendor,
                 method,

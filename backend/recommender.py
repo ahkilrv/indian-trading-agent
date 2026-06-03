@@ -197,10 +197,9 @@ def _analyze_stock(ticker: str) -> dict | None:
 
         # === CYCLICAL (MONTHLY) ===
         current_month = datetime.now().month
-        hist_copy = hist.copy()
-        hist_copy["Month"] = hist_copy["Date"].dt.month if "Date" in hist_copy.columns else hist_copy.index.month
-        hist_copy["MonthlyReturn"] = hist_copy["Close"].pct_change()
-        month_data = hist_copy[hist_copy["Month"] == current_month]["MonthlyReturn"].dropna()
+        hist["Month"] = hist["Date"].dt.month if "Date" in hist.columns else hist.index.month
+        hist["MonthlyReturn"] = hist["Close"].pct_change()
+        month_data = hist[hist["Month"] == current_month]["MonthlyReturn"].dropna()
         if len(month_data) > 10:
             avg_month_return = float(month_data.mean() * 100)
             if avg_month_return > 0.2:
@@ -209,6 +208,9 @@ def _analyze_stock(ticker: str) -> dict | None:
             elif avg_month_return < -0.2:
                 score += _ACTIVE_WEIGHTS["cyclical_bearish"]
                 signals.append({"type": "Cyclical (Bearish Month)", "direction": "BEARISH", "value": f"{avg_month_return:.2f}% historical avg", "weight": _ACTIVE_WEIGHTS["cyclical_bearish"]})
+
+        # Drop temporary columns to free memory
+        hist.drop(columns=["Month", "MonthlyReturn"], inplace=True, errors="ignore")
 
         # === TREND (Moving Averages) ===
         if len(closes) >= 200:
@@ -483,7 +485,7 @@ def recommend(
         except Exception as e:
             print(f"[Recommender] Concentration check failed: {e}", flush=True)
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {executor.submit(_analyze_stock, ticker): ticker for ticker in stocks}
         for f in as_completed(futures):
             result = f.result()
@@ -552,5 +554,7 @@ def recommend(
         record_shadow_trades_from_recommendations(result)
     except Exception as e:
         print(f"[Recommender] shadow recording failed: {e}", flush=True)
+
+    import gc; gc.collect()
 
     return result

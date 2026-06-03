@@ -21,11 +21,23 @@ from backend.settings_manager import load_api_keys_into_env, apply_llm_config_to
 
 
 def _sanitize_nan(obj):
-    """Recursively replace NaN/Infinity floats with None (JSON-safe)."""
+    """Recursively replace NaN/Infinity floats with None (JSON-safe).
+    Mutates dicts/lists in-place to avoid duplication of large API responses.
+    """
     if isinstance(obj, dict):
-        return {k: _sanitize_nan(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_sanitize_nan(v) for v in obj]
+        for k, v in list(obj.items()):
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                obj[k] = None
+            else:
+                _sanitize_nan(v)
+        return obj
+    if isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                obj[i] = None
+            else:
+                _sanitize_nan(v)
+        return obj
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None
@@ -46,6 +58,8 @@ class SafeJSONResponse(JSONResponse):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import gc
+    gc.set_threshold(700, 10, 5)
     ensure_db()
     load_api_keys_into_env()
     apply_llm_config_to_default()

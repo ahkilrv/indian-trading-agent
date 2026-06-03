@@ -195,7 +195,7 @@ def refresh_earnings_calendar(tickers: list[str]) -> dict:
     _ensure_table()
     fetched = []
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {executor.submit(fetch_earnings_for_ticker, t): t for t in tickers}
         for f in as_completed(futures):
             result = f.result()
