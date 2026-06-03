@@ -218,32 +218,91 @@ def get_indicators(
 
 @router.get("/fundamentals/{ticker}")
 def get_fundamentals(ticker: str):
-    """Get company fundamentals."""
+    """Get company fundamentals.
+
+    Tries yfinance first (with error handling), then falls back to
+    the vendor chain: Alpha Vantage → yfinance.
+    """
     symbol = normalize_ticker(ticker)
-    t = yf.Ticker(symbol)
-    info = t.info
+
+    # Attempt 1: yfinance with safe wrapper
+    info = _yf_safe_info(symbol)
+    if info:
+        return {
+            "ticker": symbol,
+            "name": info.get("shortName", symbol),
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "market_cap": info.get("marketCap"),
+            "pe_ratio": info.get("trailingPE"),
+            "forward_pe": info.get("forwardPE"),
+            "pb_ratio": info.get("priceToBook"),
+            "dividend_yield": info.get("dividendYield"),
+            "eps": info.get("trailingEps"),
+            "roe": info.get("returnOnEquity"),
+            "debt_to_equity": info.get("debtToEquity"),
+            "revenue": info.get("totalRevenue"),
+            "profit_margin": info.get("profitMargins"),
+            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "avg_volume": info.get("averageVolume"),
+            "beta": info.get("beta"),
+            "data_source": "Yahoo Finance",
+        }
+
+    # Attempt 2: vendor chain (Alpha Vantage → yfinance)
+    try:
+        from tradingagents.dataflows.interface import route_to_vendor
+        from datetime import datetime
+        raw = route_to_vendor("get_fundamentals", symbol, datetime.now().strftime("%Y-%m-%d"))
+        import json
+        # Alpha Vantage returns JSON string, yfinance returns text
+        if isinstance(raw, str):
+            data = json.loads(raw)
+        elif isinstance(raw, dict):
+            data = raw
+        else:
+            data = {}
+
+        if data and data.get("Name"):
+            return {
+                "ticker": symbol,
+                "name": data.get("Name", symbol),
+                "sector": data.get("Sector"),
+                "industry": data.get("Industry"),
+                "market_cap": _safe_float(data.get("MarketCapitalization")),
+                "pe_ratio": _safe_float(data.get("PERatio")),
+                "forward_pe": _safe_float(data.get("ForwardPE")),
+                "pb_ratio": _safe_float(data.get("PriceToBookRatio")),
+                "dividend_yield": _safe_float(data.get("DividendYield")),
+                "eps": _safe_float(data.get("EPS")),
+                "roe": _safe_float(data.get("ReturnOnEquityTTM")),
+                "debt_to_equity": _safe_float(data.get("DebtToEquityRatio")),
+                "revenue": _safe_float(data.get("RevenueTTM")),
+                "profit_margin": _safe_float(data.get("ProfitMargin")),
+                "fifty_two_week_high": _safe_float(data.get("52WeekHigh")),
+                "fifty_two_week_low": _safe_float(data.get("52WeekLow")),
+                "beta": _safe_float(data.get("Beta")),
+                "data_source": "Alpha Vantage",
+            }
+    except Exception:
+        pass
 
     return {
         "ticker": symbol,
-        "name": info.get("shortName", symbol),
-        "sector": info.get("sector"),
-        "industry": info.get("industry"),
-        "market_cap": info.get("marketCap"),
-        "pe_ratio": info.get("trailingPE"),
-        "forward_pe": info.get("forwardPE"),
-        "pb_ratio": info.get("priceToBook"),
-        "dividend_yield": info.get("dividendYield"),
-        "eps": info.get("trailingEps"),
-        "roe": info.get("returnOnEquity"),
-        "debt_to_equity": info.get("debtToEquity"),
-        "revenue": info.get("totalRevenue"),
-        "profit_margin": info.get("profitMargins"),
-        "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
-        "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-        "avg_volume": info.get("averageVolume"),
-        "beta": info.get("beta"),
-        "data_source": _stock_source(),
+        "error": "Fundamentals unavailable from all sources",
+        "data_source": "Alpha Vantage",
     }
+
+
+def _safe_float(val):
+    """Convert a value to float, return None if not possible."""
+    if val is None:
+        return None
+    try:
+        return float(str(val).replace(",", ""))
+    except (ValueError, TypeError):
+        return None
 
 
 @router.get("/news/{ticker}")
@@ -274,6 +333,159 @@ def get_news(ticker: str, count: int = Query(10)):
             })
 
     return {"ticker": symbol, "news": articles}
+
+
+@router.get("/debug/sources/{ticker}")
+def debug_data_sources(ticker: str):
+    """Test all configured data sources and report status for each."""
+    from tradingagents.dataflows.interface import route_to_vendor, VENDOR_METHODS, get_data_source_label
+    from datetime import datetime, timedelta
+    import json, traceback
+
+    symbol = ticker.upper()
+    now = datetime.now()
+    results = {}
+
+    # 1. Stock data (Dhan → nse_http → yfinance)
+    try:
+        csv_str = route_to_vendor("get_stock_data", symbol, (now - timedelta(days=30)).strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d"))
+        import pandas as pd
+        from io import StringIO
+        df = pd.read_csv(StringIO(csv_str), comment="#")
+        results["get_stock_data"] = {
+            "status": "OK",
+            "rows": len(df),
+            "latest_close": float(df.iloc[-1].get("Close", df.iloc[-1].get("close", 0))),
+            "vendors": list(VENDOR_METHODS.get("get_stock_data", {}).keys()),
+        }
+    except Exception as e:
+        results["get_stock_data"] = {"status": "FAIL", "error": str(e), "vendors": list(VENDOR_METHODS.get("get_stock_data", {}).keys())}
+
+    # 2. Fundamentals (Alpha Vantage → yfinance)
+    try:
+        raw = route_to_vendor("get_fundamentals", symbol, now.strftime("%Y-%m-%d"))
+        if isinstance(raw, str):
+            import json
+            data = json.loads(raw) if raw.strip().startswith("{") else {"raw_preview": raw[:200]}
+        else:
+            data = raw
+        results["get_fundamentals"] = {
+            "status": "OK",
+            "name": data.get("Name") or data.get("shortName", "(no name field)"),
+            "sector": data.get("Sector") or data.get("sector"),
+            "pe": data.get("PERatio") or data.get("trailingPE"),
+            "vendors": list(VENDOR_METHODS.get("get_fundamentals", {}).keys()),
+        }
+    except Exception as e:
+        results["get_fundamentals"] = {"status": "FAIL", "error": str(e), "vendors": list(VENDOR_METHODS.get("get_fundamentals", {}).keys())}
+
+    # 3. News (yfinance)
+    try:
+        from yfinance import Ticker
+        t = Ticker(symbol)
+        news = t.get_news(count=3)
+        results["get_news"] = {
+            "status": "OK",
+            "articles": len(news or []),
+            "sample": (news or [{}])[0].get("title", news[0].get("content", {}).get("title", "")) if news else "none",
+            "vendors": list(VENDOR_METHODS.get("get_news", {}).keys()),
+        }
+    except Exception as e:
+        results["get_news"] = {"status": "FAIL", "error": str(e), "vendors": list(VENDOR_METHODS.get("get_news", {}).keys())}
+
+    # 4. RSS ticker news (Google News RSS + ET)
+    from tradingagents.dataflows.rss_news import get_rss_ticker_news
+    try:
+        rss_text = get_rss_ticker_news(symbol)
+        total_line = [l for l in rss_text.split("\n") if "Total articles" in l]
+        results["get_ticker_news"] = {
+            "status": "OK",
+            "total_articles": total_line[0] if total_line else "unknown",
+            "length_chars": len(rss_text),
+        }
+    except Exception as e:
+        results["get_ticker_news"] = {"status": "FAIL", "error": str(e)}
+
+    # 5. SerpAPI Google News
+    from tradingagents.dataflows.serp_news import get_serp_news_data
+    try:
+        serp_text = get_serp_news_data(symbol)
+        total_found = len([l for l in serp_text.split("\n") if l.startswith("  ") and "**" in l])
+        results["get_serp_news"] = {
+            "status": "OK",
+            "articles_found": total_found,
+            "length_chars": len(serp_text),
+        }
+    except Exception as e:
+        results["get_serp_news"] = {"status": "FAIL", "error": str(e)}
+
+    # 6. SerpAPI YouTube
+    from tradingagents.dataflows.serp_youtube import get_youtube_sentiment_data
+    try:
+        yt_text = get_youtube_sentiment_data(symbol)
+        video_lines = [l for l in yt_text.split("\n") if "Videos Found" in l]
+        results["get_youtube_sentiment"] = {
+            "status": "OK",
+            "summary": video_lines[0] if video_lines else "no videos line",
+            "length_chars": len(yt_text),
+        }
+    except Exception as e:
+        results["get_youtube_sentiment"] = {"status": "FAIL", "error": str(e)}
+
+    # 7. SerpAPI Forums
+    from tradingagents.dataflows.serp_forums import get_forums_sentiment_data
+    try:
+        forum_text = get_forums_sentiment_data(symbol)
+        disc_lines = [l for l in forum_text.split("\n") if "Discussions Found" in l]
+        results["get_forums_sentiment"] = {
+            "status": "OK",
+            "summary": disc_lines[0] if disc_lines else "no discussions line",
+            "length_chars": len(forum_text),
+        }
+    except Exception as e:
+        results["get_forums_sentiment"] = {"status": "FAIL", "error": str(e)}
+
+    # 8. SerpAPI Google Finance
+    from tradingagents.dataflows.serp_finance import get_google_finance_data
+    try:
+        gf_text = get_google_finance_data(symbol)
+        price_lines = [l for l in gf_text.split("\n") if "Price:" in l]
+        results["get_google_finance"] = {
+            "status": "OK",
+            "summary": price_lines[0] if price_lines else "no price line",
+            "length_chars": len(gf_text),
+        }
+    except Exception as e:
+        results["get_google_finance"] = {"status": "FAIL", "error": str(e)}
+
+    # 9. FII/DII
+    from backend.fii_dii import get_today_data, get_recent_history, get_market_bias
+    try:
+        fiidii_today = get_today_data()
+        fiidii_hist = get_recent_history(3)
+        fiidii_bias = get_market_bias()
+        results["fii_dii"] = {
+            "status": "OK",
+            "today": {"date": fiidii_today.get("date"), "fii_net": fiidii_today.get("fii_net"), "dii_net": fiidii_today.get("dii_net"), "source": fiidii_today.get("source")} if fiidii_today else "no data",
+            "history_days": len(fiidii_hist),
+            "bias": fiidii_bias.get("bias"),
+        }
+    except Exception as e:
+        results["fii_dii"] = {"status": "FAIL", "error": str(e)}
+
+    # 10. FII via force_refresh (tests Moneycontrol)
+    try:
+        fiidii_fresh = get_today_data(force_refresh=True)
+        results["fii_dii_force_refresh"] = {
+            "status": "OK",
+            "date": fiidii_fresh.get("date") if fiidii_fresh else "none",
+            "fii_net": fiidii_fresh.get("fii_net") if fiidii_fresh else None,
+            "source": fiidii_fresh.get("source") if fiidii_fresh else "none",
+        } if fiidii_fresh else {"status": "FAIL", "error": "No data returned from force_refresh"}
+    except Exception as e:
+        results["fii_dii_force_refresh"] = {"status": "FAIL", "error": str(e)}
+
+    return results
 
 
 @router.get("/market-status")
