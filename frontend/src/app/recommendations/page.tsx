@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { getRecommendations, openPaperTrade } from "@/lib/api";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { connectRecommendationsSSE, openPaperTrade } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { HelpSection } from "@/components/HelpSection";
-import { Loader2, TrendingUp, TrendingDown, Sparkles, ChevronDown, ChevronUp, Target, Search, FlaskConical } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Sparkles, ChevronDown, ChevronUp, Target, Search, FlaskConical, Activity } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { NextStep } from "@/components/NextStep";
@@ -17,37 +17,30 @@ import { TradingViewLink } from "@/components/TradingViewLink";
 const recommendationsHelp = [
   {
     question: "What is this?",
-    answer: "This is the CONSOLIDATED RECOMMENDATION ENGINE. Instead of you checking each scanner/strategy separately, this runs ALL signals for EVERY stock and combines them:\n\n  \u2022 Gap Up/Down detection\n  \u2022 Volume spike analysis\n  \u2022 Breakout detection\n  \u2022 Support/Resistance proximity\n  \u2022 RSI overbought/oversold\n  \u2022 Cyclical/seasonal patterns\n  \u2022 Trend (50/200 SMA alignment)\n\nEach signal has a weight based on historical win rate. Stocks are then ranked and classified: Strong Buy, Buy, Sell, Strong Sell.",
+    answer: "CONSOLIDATED RECOMMENDATION ENGINE. Runs ALL signals for EVERY stock using continuous scoring (no more binary thresholds):\n\n  \u2022 Gap Up/Down detection (continuous)\n  \u2022 Volume spike analysis (logarithmic)\n  \u2022 Breakout detection (proportional)\n  \u2022 Support/Resistance proximity (inverse-distance)\n  \u2022 RSI deviation position\n  \u2022 Momentum (5-day return)\n  \u2022 Trend (SMA alignment)\n  \u2022 Cyclical/seasonal patterns\n\nEvery stock gets a score and ALL are ranked. No more empty 'No signals' results.",
   },
   {
-    question: "How does the scoring work?",
-    answer: "Each signal adds or subtracts points:\n\nBullish signals (add points):\n  \u2022 Volume-confirmed breakout: +3.0 (historically best signal)\n  \u2022 Volume spike bullish: +2.0\n  \u2022 Near major support: +2.0\n  \u2022 Gap filled (reversal): +1.5\n  \u2022 RSI oversold: +1.5\n  \u2022 Cyclical bullish month: +1.5\n  \u2022 Strong uptrend: +1.0\n\nBearish signals (subtract points):\n  \u2022 Breakdown below support: -2.5\n  \u2022 Volume spike bearish: -2.0\n  \u2022 Near major resistance: -1.5\n  \u2022 Cyclical bearish month: -1.5\n  \u2022 RSI overbought: -1.0\n  \u2022 Strong downtrend: -1.0\n\nRatings:\n  \u2022 Score >=4: STRONG BUY (4+ aligned bullish signals)\n  \u2022 Score 2-4: BUY\n  \u2022 Score -2 to -4: SELL\n  \u2022 Score <=-4: STRONG SELL\n  \u2022 Otherwise: NEUTRAL (filtered out)",
+    question: "How does continuous scoring work?",
+    answer: "Instead of binary thresholds (gap >= 2% yes/no), each factor contributes proportionally:\n\n  \u2022 Gap: gap_pct x 0.35 (capped at ±3)\n  \u2022 Volume: log2(ratio) x 0.75 (capped at ±3)\n  \u2022 Breakout: % above 20d high x 10 (capped at ±3)\n  \u2022 S/R: 1 / distance% (capped at ±3, stronger when closer)\n  \u2022 RSI: (50 - rsi) / 20 (capped at ±2)\n  \u2022 Trend: SMA deviation % x 3 (capped at ±3)\n  \u2022 Momentum: 5d return% x 0.3 (capped at ±2)\n  \u2022 Cyclical: avg month return% x 2 (capped at ±2)\n\nTotal possible score range: -21 to +21.\n\nRatings:\n  \u2022 Score >= 4: STRONG BUY\n  \u2022 Score >= 1.5: BUY\n  \u2022 Score -1.5 to 1.5: NEUTRAL (but still shown)\n  \u2022 Score <= -1.5: SELL\n  \u2022 Score <= -4: STRONG SELL",
   },
   {
     question: "How to use the recommendations?",
-    answer: "Simple workflow:\n\n1. Run the recommender (takes ~30 sec for NIFTY 100)\n2. Focus on STRONG BUY / STRONG SELL first (highest confidence)\n3. Click \"View Signals\" on interesting ones to see WHY it's recommended\n4. Click \"Analyze\" to run AI analysis (Rs.15-25) on top 2-3 candidates\n5. Only take trades where AI agrees with the recommendation\n\nThe key benefit: you go from scanning 100 stocks manually to a ranked list of ~5-20 high-conviction trade ideas in 30 seconds.",
+    answer: "Simple workflow:\n\n1. Click 'Get Recommendations' (results stream in as each stock is analyzed)\n2. Focus on high-scoring stocks first (highest absolute score)\n3. Click 'Signals' on interesting ones to see WHY it's recommended\n4. Click 'AI Analyze' to run AI analysis (Rs.15-25) on top 2-3 candidates\n5. Only take trades where AI agrees with the recommendation\n\nThe key benefit: you go from scanning 50-100 stocks manually to a ranked list in under 30 seconds.",
   },
   {
-    question: "What does \"Confidence\" mean?",
-    answer: "Confidence = number of aligned signals pointing the same direction:\n\n  \u2022 HIGH: 4+ signals aligned (very strong conviction, rare)\n  \u2022 MEDIUM: 2-3 signals aligned (good setups)\n  \u2022 LOW: 1 signal (only 1 indicator flashing, weak)\n\nAlways prefer HIGH confidence signals. A stock with Score +3 and 4 signals is better than Score +4 with only 1 signal.",
+    question: "Why don't I see NEUTRAL stocks anymore?",
+    answer: "You DO see them — all stocks are ranked by score. NEUTRAL just means the score is between -1.5 and +1.5 (no strong conviction). These stocks are still listed in the main 'Results' tab so you can see the full picture. The BUY/SELL tabs only show stocks with stronger conviction.",
   },
   {
     question: "What is the % estimated success?",
-    answer: "A rough probability estimate based on:\n  \u2022 Baseline: 50% (random chance)\n  \u2022 +4% per point of absolute score (up to +30%)\n  \u2022 +2% per aligned signal (up to +15%)\n  \u2022 Max: 85% (never 100% certain)\n\nInterpretation:\n  \u2022 >=70% = high probability setup (rare, take it)\n  \u2022 60-70% = good probability (worth considering)\n  \u2022 50-60% = barely better than coin flip\n\nThis is an estimate based on signal strength, NOT guaranteed. Actual win rates depend on market conditions. Always use Performance page to validate actual historical win rates.",
-  },
-  {
-    question: "What does \"AI Analyze\" button do?",
-    answer: "Clicking \"AI Analyze\" takes you to the full AI analysis pipeline:\n\n  \u2022 10 AI agents analyze the stock (market, social, news, fundamentals, bull/bear debate, trader, risk debate, portfolio manager)\n  \u2022 Reads actual news articles, checks P&L/balance sheet\n  \u2022 Returns specific entry price, stop-loss, target, position size, time horizon\n  \u2022 Takes 1-3 minutes per stock\n  \u2022 Costs ~Rs.15-25 per analysis (Anthropic Claude API)\n\nThis is MUCH deeper than the recommendation engine. Use it for your TOP 2-3 picks, not every recommendation.\n\nThink of it as:\n  \u2022 Recommendations = Quick filter (FREE, 30 sec for 100 stocks)\n  \u2022 AI Analyze = Expert opinion (PAID, deep analysis of ONE stock)",
-  },
-  {
-    question: "How often should I run this?",
-    answer: "Best practice:\n  \u2022 Once per day, 30 min after market open (9:45 AM) \u2014 captures gaps and opening moves\n  \u2022 Once more at 2 PM \u2014 for intraday or next-day swing trade ideas\n\nThe data is real-time from yfinance, so signals change as prices move. A stock that was \"Buy\" at 10 AM might be \"Neutral\" by 2 PM if the price ran up too much.\n\nIt's completely FREE to run \u2014 no API cost. So run it as often as you like.",
+    answer: "A rough probability estimate based on:\n  \u2022 Baseline: 50% (random chance)\n  \u2022 +5% per point of absolute score (up to +30%)\n  \u2022 +2% per aligned signal (up to +15%)\n  \u2022 Max: 85% (never 100% certain)\n\nThis is an estimate based on signal strength, NOT guaranteed. Actual win rates depend on market conditions.",
   },
 ];
 
 const ratingStyles: Record<string, { color: string; bg: string; border: string; icon: any }> = {
   "STRONG BUY": { color: "text-green-700", bg: "bg-green-100", border: "border-green-300", icon: TrendingUp },
   "BUY": { color: "text-green-600", bg: "bg-green-50", border: "border-green-200", icon: TrendingUp },
+  "NEUTRAL": { color: "text-gray-500", bg: "bg-gray-50", border: "border-gray-200", icon: Activity },
   "SELL": { color: "text-red-600", bg: "bg-red-50", border: "border-red-200", icon: TrendingDown },
   "STRONG SELL": { color: "text-red-700", bg: "bg-red-100", border: "border-red-300", icon: TrendingDown },
 };
@@ -91,10 +84,11 @@ function RecommendationCard({ rec }: { rec: any }) {
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {rec.bullish_signal_count > 0 && <span className="text-green-600">{rec.bullish_signal_count} bullish signals</span>}
+                {rec.bullish_signal_count > 0 && <span className="text-green-600">{rec.bullish_signal_count} bullish</span>}
                 {rec.bullish_signal_count > 0 && rec.bearish_signal_count > 0 && <span> / </span>}
-                {rec.bearish_signal_count > 0 && <span className="text-red-600">{rec.bearish_signal_count} bearish signals</span>}
+                {rec.bearish_signal_count > 0 && <span className="text-red-600">{rec.bearish_signal_count} bearish</span>}
                 {rec.rsi !== null && <span> / RSI: {rec.rsi}</span>}
+                {rec.signals && <span> / {rec.signals.length} signal{rec.signals.length !== 1 ? "s" : ""}</span>}
               </p>
             </div>
           </div>
@@ -118,13 +112,12 @@ function RecommendationCard({ rec }: { rec: any }) {
                     confidence: rec.confidence,
                     success_probability: rec.success_probability,
                     triggered_signals: rec.signals,
-                    // Basic SL/Targets from current price
                     stop_loss: rec.price ? Number((rec.price * (rec.direction?.includes("BUY") ? 0.97 : 1.03)).toFixed(2)) : undefined,
                     target_1: rec.price ? Number((rec.price * (rec.direction?.includes("BUY") ? 1.05 : 0.95)).toFixed(2)) : undefined,
                     time_horizon: "1_WEEK",
                   });
                   toast.success(`${rec.ticker} tracked at Rs.${rec.price}`, {
-                    description: "Paper trade opened. Check P&L at 1/3/5/10 days on the Simulation page.",
+                    description: "Paper trade opened.",
                     duration: 6000,
                     action: {
                       label: "View Simulation",
@@ -164,12 +157,14 @@ function RecommendationCard({ rec }: { rec: any }) {
                 </div>
               );
             })}
-            <div className="flex items-center justify-between pt-2 border-t">
-              <span className="text-xs text-muted-foreground">60-day range:</span>
-              <span className="text-xs">
-                Support: <span className="text-green-600">Rs.{rec.near_support}</span> • Resistance: <span className="text-red-600">Rs.{rec.near_resistance}</span>
-              </span>
-            </div>
+            {rec.near_support != null && rec.near_resistance != null && (
+              <div className="flex items-center justify-between pt-2 border-t">
+                <span className="text-xs text-muted-foreground">60-day range:</span>
+                <span className="text-xs">
+                  Support: <span className="text-green-600">Rs.{rec.near_support}</span> • Resistance: <span className="text-red-600">Rs.{rec.near_resistance}</span>
+                </span>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -177,27 +172,101 @@ function RecommendationCard({ rec }: { rec: any }) {
   );
 }
 
+
+function partitionByDirection(results: any[]) {
+  return {
+    strong_buys: results.filter((r) => r.direction === "STRONG BUY").sort((a, b) => b.score - a.score),
+    buys: results.filter((r) => r.direction === "BUY").sort((a, b) => b.score - a.score),
+    neutral: results.filter((r) => r.direction === "NEUTRAL").sort((a, b) => b.score - a.score),
+    sells: results.filter((r) => r.direction === "SELL").sort((a, b) => a.score - b.score),
+    strong_sells: results.filter((r) => r.direction === "STRONG SELL").sort((a, b) => a.score - b.score),
+  };
+}
+
+
 export default function RecommendationsPage() {
   const [universe, setUniverse] = useState("nifty100");
-  const [minSignals, setMinSignals] = useState(2);
-  const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [partialResults, setPartialResults] = useState<any[]>([]);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const esRef = useRef<EventSource | null>(null);
 
-  const handleRun = async () => {
-    setLoading(true);
+  const handleStop = useCallback(() => {
+    esRef.current?.close();
+    esRef.current = null;
+    setStreaming(false);
+  }, []);
+
+  useEffect(() => {
+    return () => { esRef.current?.close(); };
+  }, []);
+
+  const handleRun = useCallback(() => {
+    handleStop();
     setData(null);
-    try {
-      const result: any = await getRecommendations(universe, minSignals);
-      setData(result);
-    } catch (e: any) {
-      toast.error(e.message || "Failed to get recommendations");
-    } finally {
-      setLoading(false);
-    }
-  };
+    setPartialResults([]);
+    setProgress({ done: 0, total: 0 });
+    setStreaming(true);
 
-  const totalRecs = data
-    ? data.strong_buys.length + data.buys.length + data.sells.length + data.strong_sells.length
+    const es = connectRecommendationsSSE(universe, {
+      onResult: (stock) => {
+        setPartialResults((prev) => [...prev, stock]);
+      },
+      onProgress: (p) => {
+        setProgress(p);
+      },
+      onComplete: (summary) => {
+        setData(summary);
+        setPartialResults([]);
+        setStreaming(false);
+        esRef.current = null;
+      },
+      onError: () => {
+        setStreaming(false);
+        esRef.current = null;
+        if (!data) {
+          toast.error("Stream connection lost. Try again.");
+        }
+      },
+    });
+    esRef.current = es;
+  }, [universe, data, handleStop]);
+
+  // Live-partition partial results for the progress tab display
+  const partialBuckets = streaming && partialResults.length > 0
+    ? partitionByDirection(partialResults)
+    : null;
+
+  // Final data buckets
+  const allResults = streaming ? partialResults : (data?.results || []);
+  const buckets = data ? {
+    strong_buys: data.strong_buys || [],
+    buys: data.buys || [],
+    sells: data.sells || [],
+    strong_sells: data.strong_sells || [],
+    // Neutral computed from results not in any bucket
+    neutral: (data.results || []).filter(
+      (r: any) => !["STRONG BUY", "BUY", "SELL", "STRONG SELL"].includes(r.direction)
+    ),
+    total_analyzed: data.total_analyzed || 0,
+    total_with_signals: data.total_with_signals || 0,
+  } : null;
+
+  const partialCounts = partialBuckets ? {
+    strong_buys: partialBuckets.strong_buys.length,
+    buys: partialBuckets.buys.length,
+    sells: partialBuckets.sells.length,
+    strong_sells: partialBuckets.strong_sells.length,
+    neutral: partialBuckets.neutral.length,
+    total_analyzed: progress.total,
+    total_with_signals: partialResults.length,
+  } : null;
+
+  // Merge counts: prefer final data if available
+  const counts = buckets || partialCounts;
+  const totalRecs = counts
+    ? counts.strong_buys + counts.buys + counts.sells + counts.strong_sells
     : 0;
 
   return (
@@ -207,7 +276,7 @@ export default function RecommendationsPage() {
           <Sparkles className="h-6 w-6 text-yellow-500" /> Recommendations
         </h1>
         <p className="text-sm text-muted-foreground">
-          AI-free unified recommendation engine. Combines ALL signals (gaps, volume, breakouts, S/R, RSI, cyclical, trend) into ranked trade ideas. FREE.
+          Unified recommendation engine with continuous scoring + progressive streaming. ALL stocks ranked — no more empty results.
         </p>
       </div>
 
@@ -228,131 +297,179 @@ export default function RecommendationsPage() {
                     variant={universe === u.value ? "default" : "outline"}
                     size="sm"
                     onClick={() => setUniverse(u.value)}
-                    disabled={loading}
+                    disabled={streaming}
                   >
                     {u.label}
                   </Button>
                 ))}
               </div>
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Min Signals</label>
-              <div className="flex gap-1">
-                {[1, 2, 3].map((n) => (
-                  <Button
-                    key={n}
-                    variant={minSignals === n ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setMinSignals(n)}
-                    disabled={loading}
-                  >
-                    {n}+
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <Button onClick={handleRun} disabled={loading}>
-              {loading ? (
+            <Button onClick={handleRun} disabled={streaming}>
+              {streaming ? (
                 <><Loader2 className="h-4 w-4 animate-spin mr-2" />Analyzing...</>
               ) : (
                 <><Sparkles className="h-4 w-4 mr-2" />Get Recommendations</>
               )}
             </Button>
+            {streaming && (
+              <Button variant="outline" size="sm" onClick={handleStop}>
+                Stop
+              </Button>
+            )}
           </div>
-          {loading && (
-            <p className="text-xs text-muted-foreground mt-3">
-              Analyzing {universe.toUpperCase()} stocks — fetching prices, computing all signals, ranking... (~30-60 seconds)
+          {streaming && (
+            <p className="text-xs text-muted-foreground mt-3 flex items-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Analyzing {progress.done}/{progress.total} {universe.toUpperCase()} stocks — results stream in as each completes...
             </p>
           )}
         </CardContent>
       </Card>
 
       {/* Summary */}
-      {data && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      {counts && (
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           <Card className="border-green-300">
             <CardContent className="p-3 text-center">
               <p className="text-xs text-muted-foreground">Strong Buy</p>
-              <p className="text-2xl font-bold text-green-700">{data.strong_buys.length}</p>
+              <p className="text-2xl font-bold text-green-700">{counts.strong_buys}</p>
             </CardContent>
           </Card>
           <Card className="border-green-200">
             <CardContent className="p-3 text-center">
               <p className="text-xs text-muted-foreground">Buy</p>
-              <p className="text-2xl font-bold text-green-600">{data.buys.length}</p>
+              <p className="text-2xl font-bold text-green-600">{counts.buys}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-gray-200">
+            <CardContent className="p-3 text-center">
+              <p className="text-xs text-muted-foreground">Neutral</p>
+              <p className="text-2xl font-bold text-gray-500">{counts.neutral}</p>
             </CardContent>
           </Card>
           <Card className="border-red-200">
             <CardContent className="p-3 text-center">
               <p className="text-xs text-muted-foreground">Sell</p>
-              <p className="text-2xl font-bold text-red-600">{data.sells.length}</p>
+              <p className="text-2xl font-bold text-red-600">{counts.sells}</p>
             </CardContent>
           </Card>
           <Card className="border-red-300">
             <CardContent className="p-3 text-center">
               <p className="text-xs text-muted-foreground">Strong Sell</p>
-              <p className="text-2xl font-bold text-red-700">{data.strong_sells.length}</p>
+              <p className="text-2xl font-bold text-red-700">{counts.strong_sells}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-3 text-center">
               <p className="text-xs text-muted-foreground">Analyzed</p>
-              <p className="text-2xl font-bold">{data.total_analyzed}</p>
-              <p className="text-xs text-muted-foreground">{data.total_with_signals} with signals</p>
+              <p className="text-2xl font-bold">{counts.total_analyzed}</p>
+              <p className="text-xs text-muted-foreground">{counts.total_with_signals} with data</p>
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Live streaming results — show as they arrive */}
+      {streaming && partialResults.length > 0 && !data && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground mb-1">
+            Live results — {partialResults.length} stocks analyzed so far, sorted by score:
+          </p>
+          {partialResults
+            .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+            .slice(0, 10)
+            .map((rec: any) => (
+              <RecommendationCard key={`live-${rec.ticker}-${partialResults.indexOf(rec)}`} rec={rec} />
+            ))}
+          {partialResults.length > 10 && (
+            <p className="text-xs text-muted-foreground text-center">
+              ... and {partialResults.length - 10} more (waiting for completion)
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Final results — Tabs */}
       {data && totalRecs > 0 && (
         <Tabs defaultValue="strong_buys">
           <TabsList>
-            <TabsTrigger value="strong_buys">Strong Buy ({data.strong_buys.length})</TabsTrigger>
-            <TabsTrigger value="buys">Buy ({data.buys.length})</TabsTrigger>
-            <TabsTrigger value="sells">Sell ({data.sells.length})</TabsTrigger>
-            <TabsTrigger value="strong_sells">Strong Sell ({data.strong_sells.length})</TabsTrigger>
+            <TabsTrigger value="strong_buys">Strong Buy ({buckets?.strong_buys.length})</TabsTrigger>
+            <TabsTrigger value="buys">Buy ({buckets?.buys.length})</TabsTrigger>
+            <TabsTrigger value="neutral">Neutral ({buckets?.neutral.length})</TabsTrigger>
+            <TabsTrigger value="sells">Sell ({buckets?.sells.length})</TabsTrigger>
+            <TabsTrigger value="strong_sells">Strong Sell ({buckets?.strong_sells.length})</TabsTrigger>
           </TabsList>
 
-          {(["strong_buys", "buys", "sells", "strong_sells"] as const).map((key) => (
+          {(["strong_buys", "buys", "neutral", "sells", "strong_sells"] as const).map((key) => (
             <TabsContent key={key} value={key} className="space-y-3">
-              {data[key].length === 0 ? (
+              {(buckets?.[key]?.length ?? 0) === 0 ? (
                 <Card>
                   <CardContent className="p-8 text-center text-muted-foreground">
-                    No {key.replace("_", " ")} recommendations. Try lowering Min Signals or switching universe.
+                    No {key.replace("_", " ")} recommendations.
                   </CardContent>
                 </Card>
               ) : (
-                data[key].map((rec: any) => <RecommendationCard key={rec.ticker} rec={rec} />)
+                (buckets?.[key] ?? []).map((rec: any) => <RecommendationCard key={rec.ticker} rec={rec} />)
               )}
             </TabsContent>
           ))}
         </Tabs>
       )}
 
-      {data && totalRecs === 0 && (
+      {/* All stocks ranking (even neutral ones) */}
+      {data && buckets && (
+        <details className="mt-6">
+          <summary className="text-sm font-medium cursor-pointer text-muted-foreground hover:text-foreground">
+            Show full ranking ({allResults.length} stocks)
+          </summary>
+          <div className="mt-3 space-y-1 max-h-96 overflow-y-auto">
+            {allResults
+              .sort((a: any, b: any) => Math.abs(b.score) - Math.abs(a.score))
+              .map((rec: any, i: number) => (
+                <div
+                  key={rec.ticker}
+                  className="flex items-center justify-between px-3 py-1.5 text-sm rounded hover:bg-muted/50"
+                >
+                  <span className="text-xs text-muted-foreground w-6">{i + 1}.</span>
+                  <span className="font-medium w-28">{rec.ticker}</span>
+                  <span className="text-muted-foreground w-20">Rs.{rec.price}</span>
+                  <span className={`w-16 font-mono ${rec.score >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    {rec.score >= 0 ? "+" : ""}{rec.score}
+                  </span>
+                  <Badge variant="outline" className={`text-xs ${rec.direction === "STRONG BUY" ? "bg-green-100 text-green-800 border-green-300" : rec.direction === "BUY" ? "bg-green-50 text-green-700 border-green-200" : rec.direction === "SELL" ? "bg-red-50 text-red-700 border-red-200" : rec.direction === "STRONG SELL" ? "bg-red-100 text-red-800 border-red-300" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
+                    {rec.direction}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground flex-1 text-right">
+                    {rec.signals?.length || 0} signals · RSI {rec.rsi ?? "—"}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </details>
+      )}
+
+      {data && totalRecs === 0 && counts && counts.total_analyzed > 0 && (
         <Card>
           <CardContent className="p-8 text-center">
-            <p className="text-muted-foreground">No strong recommendations found today.</p>
+            <p className="text-muted-foreground">All stocks scored NEUTRAL — market is quiet today.</p>
             <p className="text-xs text-muted-foreground mt-2">
-              The market might be in a neutral state. Try again later or switch to a different universe.
+              Check the full ranking below for stocks closest to a signal.
             </p>
           </CardContent>
         </Card>
       )}
 
-      {!data && !loading && (
+      {!data && !streaming && (
         <Card className="h-[200px] flex items-center justify-center">
           <CardContent className="text-center">
             <p className="text-muted-foreground">Click &quot;Get Recommendations&quot; to scan all {universe.toUpperCase()} stocks and get ranked trade ideas.</p>
             <p className="text-xs text-muted-foreground mt-2">
-              This replaces manual checking of Scanner + Strategies + Charts. One click, full analysis, ranked list.
+              Results stream in progressively — you&apos;ll see stocks appear as each is analyzed.
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* Next Step */}
       {data && totalRecs > 0 && (
         <NextStep
           title="Deep-analyze your top pick with AI"

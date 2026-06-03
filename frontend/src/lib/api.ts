@@ -242,6 +242,53 @@ export const getRecommendations = (universe = "nifty100", minSignals = 2) =>
 export const analyzeRecommendation = (ticker: string) =>
   fetchAPI(`/api/recommend/stock/${ticker}`);
 
+// SSE streaming — progressive results as each stock finishes
+export function connectRecommendationsSSE(
+  universe: string,
+  handlers: {
+    onResult?: (stock: any) => void;
+    onProgress?: (progress: { done: number; total: number }) => void;
+    onComplete?: (summary: any) => void;
+    onMetadata?: (metadata: any) => void;
+    onError?: () => void;
+  },
+): EventSource {
+  const url = `${API_BASE}/api/recommend/stream?universe=${universe}`;
+  const es = new EventSource(url);
+
+  es.addEventListener("result", (event: MessageEvent) => {
+    try {
+      handlers.onResult?.(JSON.parse(event.data));
+    } catch {}
+  });
+
+  es.addEventListener("progress", (event: MessageEvent) => {
+    try {
+      handlers.onProgress?.(JSON.parse(event.data));
+    } catch {}
+  });
+
+  es.addEventListener("complete", (event: MessageEvent) => {
+    try {
+      handlers.onComplete?.(JSON.parse(event.data));
+    } catch {}
+    es.close();
+  });
+
+  es.addEventListener("metadata", (event: MessageEvent) => {
+    try {
+      handlers.onMetadata?.(JSON.parse(event.data));
+    } catch {}
+  });
+
+  es.onerror = () => {
+    handlers.onError?.();
+    es.close();
+  };
+
+  return es;
+}
+
 // Signal Performance (per-signal win rate + auto-tune)
 export const getSignalPerformance = (windowDays = 90) =>
   fetchAPI(`/api/signal-performance/?window_days=${windowDays}`);

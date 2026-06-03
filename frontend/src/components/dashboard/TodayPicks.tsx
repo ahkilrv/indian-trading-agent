@@ -5,7 +5,7 @@ import { getRecommendations, getWatchlist, openPaperTrade } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, TrendingUp, TrendingDown, Sparkles, RefreshCw, ArrowRight, Bell, Star, FlaskConical } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Sparkles, RefreshCw, ArrowRight, Bell, Star, FlaskConical, Activity } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { TradingViewLink } from "@/components/TradingViewLink";
@@ -52,6 +52,11 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
   const topSells = data
     ? [...(data.strong_sells || []), ...(data.sells || [])].slice(0, 3)
     : [];
+  // Fallback: if bubbles are empty but we have results (all NEUTRAL day),
+  // show top-ranked stocks by absolute score
+  const fallbackPicks = (data?.results || [])
+    .sort((a: any, b: any) => Math.abs(b.score) - Math.abs(a.score))
+    .slice(0, 5);
 
   return (
     <Card className="border-yellow-200">
@@ -111,10 +116,36 @@ export function TodayPicks({ universe = "nifty100" }: { universe?: string }) {
           </div>
         )}
 
-        {data && topPicks.length === 0 && topSells.length === 0 && (
-          <div className="py-6 text-center">
-            <p className="text-sm text-muted-foreground">No strong signals in the market right now.</p>
-            <p className="text-xs text-muted-foreground mt-1">Try again later or check the Market Scan.</p>
+        {data && topPicks.length === 0 && topSells.length === 0 && fallbackPicks.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-amber-700 mb-2">MARKET QUIET — TOP RANKED STOCKS (NEUTRAL)</p>
+            {fallbackPicks.map((pick: any, i: number) => (
+              <div
+                key={pick.ticker}
+                className="flex items-center justify-between p-3 rounded-lg bg-amber-50/50 border border-amber-100"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-sm font-semibold text-muted-foreground w-5">{i + 1}.</span>
+                  <Activity className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold">{pick.ticker} <TradingViewLink ticker={pick.ticker} className="ml-0.5" /></span>
+                      <span className="text-sm text-muted-foreground">Rs.{pick.price}</span>
+                      <Badge variant="outline" className="text-xs">{pick.direction}</Badge>
+                      <span className="text-xs font-mono text-muted-foreground">
+                        Score: {pick.score >= 0 ? "+" : ""}{pick.score}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {pick.signals?.length || 0} factors · RSI {pick.rsi || "—"}
+                    </p>
+                  </div>
+                </div>
+                <Link href={`/analysis?ticker=${pick.ticker}`}>
+                  <Button size="sm" variant="outline">View</Button>
+                </Link>
+              </div>
+            ))}
           </div>
         )}
 
