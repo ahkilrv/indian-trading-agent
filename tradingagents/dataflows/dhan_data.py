@@ -411,6 +411,9 @@ def get_dhan_stock_data(
 ) -> str:
     """Return daily OHLCV CSV from Dhan's historical charts API.
 
+    If the historical data doesn't include the current trading day,
+    appends a live quote record so the analyst always sees the latest price.
+
     Signature matches ``get_nse_http_stock_data`` / ``get_yfinance_stock_data``.
     """
     security_id, exchange_segment = _get_security_id(symbol)
@@ -463,11 +466,45 @@ def get_dhan_stock_data(
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # If the latest historical record is before today, try to supplement
+    # with the live quote so the analyst sees the current trading day's data.
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    latest_date = df["Date"].max() if "Date" in df.columns and not df.empty else ""
+    if latest_date < today_str:
+        try:
+            quote = DhanClient.get(
+                "/marketfeed/ohlc",
+                {exchange_segment: [int(security_id)]},
+            )
+            qdata = quote.get("data", {})
+            seg_data = qdata.get(exchange_segment, {})
+            inst = seg_data.get(security_id, seg_data)
+            if inst:
+                ltp = inst.get("last_price")
+                ohlc = inst.get("ohlc", {})
+                if ltp is not None:
+                    records.append({
+                        "Date": today_str,
+                        "Open": round(float(ohlc.get("open", ltp)), 2) if ohlc.get("open") else round(float(ltp), 2),
+                        "High": round(float(ohlc.get("high", ltp)), 2) if ohlc.get("high") else round(float(ltp), 2),
+                        "Low": round(float(ohlc.get("low", ltp)), 2) if ohlc.get("low") else round(float(ltp), 2),
+                        "Close": round(float(ltp), 2),
+                        "Volume": 0,
+                    })
+                    df = pd.DataFrame(records)
+                    for col in ("Open", "High", "Low", "Close", "Volume"):
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+        except Exception:
+            # Live quote is best-effort; if it fails, return historical data as-is
+            pass
+
     csv_string = df.to_csv(index=False)
+    source_label = "DhanHQ API + Live Quote" if latest_date < today_str else "DhanHQ API"
     header = (
         f"# Dhan stock data for {symbol} from {iso_start} to {iso_end}\n"
         f"# Total records: {len(df)}\n"
-        f"# Source: DhanHQ API\n\n"
+        f"# Source: {source_label}\n\n"
     )
     return header + csv_string
 
