@@ -470,6 +470,7 @@ def get_dhan_stock_data(
     # with the live quote so the analyst sees the current trading day's data.
     today_str = datetime.now().strftime("%Y-%m-%d")
     latest_date = df["Date"].max() if "Date" in df.columns and not df.empty else ""
+    live_quote_appended = False
     if latest_date < today_str:
         try:
             quote = DhanClient.get(
@@ -495,12 +496,13 @@ def get_dhan_stock_data(
                     for col in ("Open", "High", "Low", "Close", "Volume"):
                         if col in df.columns:
                             df[col] = pd.to_numeric(df[col], errors="coerce")
+                    live_quote_appended = True
         except Exception:
             # Live quote is best-effort; if it fails, return historical data as-is
             pass
 
     csv_string = df.to_csv(index=False)
-    source_label = "DhanHQ API + Live Quote" if latest_date < today_str else "DhanHQ API"
+    source_label = "DhanHQ API + Live Quote" if live_quote_appended else "DhanHQ API"
     header = (
         f"# Dhan stock data for {symbol} from {iso_start} to {iso_end}\n"
         f"# Total records: {len(df)}\n"
