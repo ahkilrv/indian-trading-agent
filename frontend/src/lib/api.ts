@@ -32,6 +32,9 @@ async function fetchAPI<T>(path: string, options?: RequestInit, timeoutMs?: numb
   throw new Error(`Cannot connect to backend at ${API_BASE}. Is it running?`);
 }
 
+// Health
+export const getBackendHealth = () => fetchAPI<{ status: string; service: string }>("/api/health", undefined, 5000, 0);
+
 // Market Data
 export const searchStocks = (query: string) => fetchAPI(`/api/market-data/search?q=${encodeURIComponent(query)}`);
 export const getQuote = (ticker: string) => fetchAPI(`/api/market-data/quote/${ticker}`);
@@ -66,14 +69,16 @@ export const exportPdf = async (data: {
   risk_debates?: { aggressive: string; conservative: string; neutral: string };
   stats?: Record<string, unknown> | null;
   duration?: number | null;
-}): Promise<Blob> => {
+}): Promise<{ blob: Blob; contentType: string }> => {
   const res = await fetch(`${API_BASE}/api/analysis/pdf-export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`PDF export failed: ${res.status}`);
-  return res.blob();
+  const contentType = res.headers.get("content-type") || "application/pdf";
+  const blob = await res.blob();
+  return { blob, contentType };
 };
 
 export const runAnalysis = (data: {

@@ -33,7 +33,7 @@ export function PdfExport({ ticker, tradeDate, signal, reports, debates, riskDeb
   const handleExport = async () => {
     setGenerating(true);
     try {
-      const blob = await exportPdf({
+      const { blob, contentType } = await exportPdf({
         ticker,
         trade_date: tradeDate,
         signal,
@@ -44,11 +44,11 @@ export function PdfExport({ ticker, tradeDate, signal, reports, debates, riskDeb
         duration,
       });
 
-      // Download the PDF
+      const ext = contentType.includes("html") ? ".html" : ".pdf";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${ticker}_analysis_${tradeDate}.pdf`;
+      a.download = `${ticker}_analysis_${tradeDate}${ext}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

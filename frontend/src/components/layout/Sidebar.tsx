@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BackendStatus } from "@/components/layout/BackendStatus";
 import {
   Home,
   Sparkles,
@@ -127,11 +128,12 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-border space-y-1.5">
         <div className="text-[10px] text-muted-foreground">
           <p>Powered by Claude + LangGraph</p>
           <p className="mt-0.5">Data: yfinance (NSE)</p>
         </div>
+        <BackendStatus />
       </div>
     </aside>
   );
