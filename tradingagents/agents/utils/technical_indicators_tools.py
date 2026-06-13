@@ -2,6 +2,7 @@ from datetime import datetime
 from langchain_core.tools import tool
 from typing import Annotated
 from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.dataflows.utils import get_prev_trading_day
 
 @tool
 def get_indicators(
@@ -15,7 +16,6 @@ def get_indicators(
     Args:
         symbol (str): Ticker symbol of the company, e.g. AAPL, TSM
         indicator (str): A single technical indicator name, e.g. 'rsi', 'macd'. Call this tool once per indicator.
-        curr_date (str): The current trading date you are trading on, YYYY-mm-dd
         look_back_days (int): How many days to look back, default is 30
     Returns:
         str: A formatted dataframe containing the technical indicators for the specified ticker symbol and indicator.
@@ -24,7 +24,7 @@ def get_indicators(
     # split and process each individually.
     indicators = [i.strip().lower() for i in indicator.split(",") if i.strip()]
     results = []
-    curr_date = datetime.now().strftime("%Y-%m-%d")
+    curr_date = get_prev_trading_day(datetime.now()).strftime("%Y-%m-%d")
     for ind in indicators:
         try:
             results.append(route_to_vendor("get_indicators", symbol, ind, curr_date, look_back_days))

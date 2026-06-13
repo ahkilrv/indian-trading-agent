@@ -28,6 +28,7 @@ from typing import Optional
 
 import pandas as pd
 import requests
+from tradingagents.dataflows.utils import get_prev_trading_day
 
 logger = logging.getLogger(__name__)
 
@@ -468,10 +469,13 @@ def get_dhan_stock_data(
 
     # If the latest historical record is before today, try to supplement
     # with the live quote so the analyst sees the current trading day's data.
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    # Use end_date (snapped to the last trading day) rather than datetime.now()
+    # so the date is consistent with the requested date range and avoids
+    # requesting a live quote on non-trading days (weekends).
+    quote_date = get_prev_trading_day(datetime.now()).strftime("%Y-%m-%d")
     latest_date = df["Date"].max() if "Date" in df.columns and not df.empty else ""
     live_quote_appended = False
-    if latest_date < today_str:
+    if latest_date < quote_date:
         try:
             quote = DhanClient.get(
                 "/marketfeed/ohlc",
@@ -485,7 +489,7 @@ def get_dhan_stock_data(
                 ohlc = inst.get("ohlc", {})
                 if ltp is not None:
                     records.append({
-                        "Date": today_str,
+                        "Date": quote_date,
                         "Open": round(float(ohlc.get("open", ltp)), 2) if ohlc.get("open") else round(float(ltp), 2),
                         "High": round(float(ohlc.get("high", ltp)), 2) if ohlc.get("high") else round(float(ltp), 2),
                         "Low": round(float(ohlc.get("low", ltp)), 2) if ohlc.get("low") else round(float(ltp), 2),

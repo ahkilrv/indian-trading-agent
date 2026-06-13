@@ -37,3 +37,10 @@ def get_next_weekday(date):
         return next_weekday
     else:
         return date
+
+
+def get_prev_trading_day(dt: datetime) -> datetime:
+    """Snap to the previous trading day if *dt* falls on a weekend."""
+    while dt.weekday() >= 5:  # Monday=0 … Sunday=6
+        dt -= timedelta(days=1)
+    return dt
