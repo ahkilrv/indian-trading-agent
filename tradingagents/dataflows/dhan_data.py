@@ -502,8 +502,14 @@ def get_dhan_stock_data(
                             df[col] = pd.to_numeric(df[col], errors="coerce")
                     live_quote_appended = True
         except Exception:
-            # Live quote is best-effort; if it fails, return historical data as-is
-            pass
+            pass  # checked below via live_quote_appended
+
+        if not live_quote_appended:
+            raise RuntimeError(
+                f"Dhan data only through {latest_date}; "
+                f"live quote unavailable for {quote_date}. "
+                "Falling through to next vendor."
+            )
 
     csv_string = df.to_csv(index=False)
     source_label = "DhanHQ API + Live Quote" if live_quote_appended else "DhanHQ API"
